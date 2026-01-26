@@ -20,8 +20,8 @@ final class HapticManager {
     private lazy var impactHeavy = UIImpactFeedbackGenerator(style: .heavy)
     private lazy var impactRigid = UIImpactFeedbackGenerator(style: .rigid)
     private lazy var impactSoft = UIImpactFeedbackGenerator(style: .soft)
-    private lazy var notification = UINotificationFeedbackGenerator()
-    private lazy var selection = UISelectionFeedbackGenerator()
+    private lazy var notificationGenerator = UINotificationFeedbackGenerator()
+    private lazy var selectionGenerator = UISelectionFeedbackGenerator()
     
     // MARK: - Initialization
     
@@ -39,7 +39,7 @@ final class HapticManager {
         guard isEnabled else { return }
         impactRigid.prepare()
         impactMedium.prepare()
-        notification.prepare()
+        notificationGenerator.prepare()
     }
     
     /// Prepare specific generator
@@ -76,19 +76,19 @@ final class HapticManager {
     /// Error occurred - error notification
     func error() {
         guard isEnabled else { return }
-        notification.notificationOccurred(.error)
+        notificationGenerator.notificationOccurred(.error)
     }
     
     /// Alert/warning - warning notification
     func alert() {
         guard isEnabled else { return }
-        notification.notificationOccurred(.warning)
+        notificationGenerator.notificationOccurred(.warning)
     }
     
     /// Light selection feedback (scrolling, minor interactions)
-    func selection() {
+    func selectionTap() {
         guard isEnabled else { return }
-        self.selection.selectionChanged()
+        selectionGenerator.selectionChanged()
     }
     
     /// Personal record achieved - celebratory sequence!
@@ -108,14 +108,14 @@ final class HapticManager {
         
         // Success notification
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-            self?.notification.notificationOccurred(.success)
+            self?.notificationGenerator.notificationOccurred(.success)
         }
     }
     
     /// Workout completed - success notification
     func workoutCompleted() {
         guard isEnabled else { return }
-        notification.notificationOccurred(.success)
+        notificationGenerator.notificationOccurred(.success)
     }
     
     /// Voice recording started

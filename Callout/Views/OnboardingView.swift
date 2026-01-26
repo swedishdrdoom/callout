@@ -73,7 +73,7 @@ struct OnboardingView: View {
             withAnimation(.spring(response: 0.3)) {
                 selectedUnit = unit
             }
-            HapticManager.shared.selection()
+            HapticManager.shared.selectionTap()
         } label: {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
@@ -160,7 +160,7 @@ struct OnboardingView: View {
             withAnimation(.spring(response: 0.3)) {
                 selectedTrigger = trigger
             }
-            HapticManager.shared.selection()
+            HapticManager.shared.selectionTap()
         } label: {
             HStack {
                 Text(trigger.displayName)

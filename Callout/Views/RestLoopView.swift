@@ -234,7 +234,9 @@ final class RestLoopViewModel {
     var restSeconds: Int = 0
     private var restTimer: Timer?
     
-    @AppStorage("weightUnit") private var weightUnit = "kg"
+    private var weightUnit: String {
+        UserDefaults.standard.string(forKey: "weightUnit") ?? "kg"
+    }
     
     var formattedRestTime: String {
         let minutes = restSeconds / 60
@@ -339,7 +341,7 @@ final class RestLoopViewModel {
                 let transcription = try await whisper.transcribe(fileURL: url)
                 
                 // Process the command
-                let result = await session.processVoiceInput(transcription)
+                let result = session.processVoiceInput(transcription)
                 
                 await MainActor.run {
                     handleProcessResult(result, transcription: transcription)
@@ -434,13 +436,9 @@ final class RestLoopViewModel {
     // MARK: - Finish Workout
     
     func finishWorkout() {
-        Task {
-            await session.endSession()
-            await MainActor.run {
-                showingReceipt = true
-                widgetData.clearSession()
-            }
-        }
+        session.endSession()
+        showingReceipt = true
+        widgetData.clearSession()
     }
 }
 
@@ -454,7 +452,9 @@ struct ManualEntryView: View {
     @State private var reps: String = ""
     @FocusState private var weightFocused: Bool
     
-    @AppStorage("weightUnit") private var weightUnit = "kg"
+    private var weightUnit: String {
+        UserDefaults.standard.string(forKey: "weightUnit") ?? "kg"
+    }
     
     var body: some View {
         NavigationStack {

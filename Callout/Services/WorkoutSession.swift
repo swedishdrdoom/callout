@@ -47,6 +47,10 @@ final class WorkoutSession {
     private let parser = GrammarParser.shared
     private let haptics = HapticManager.shared
     
+    // MARK: - Initialization
+    
+    private init() {}
+    
     // MARK: - Session Lifecycle
     
     /// Start a new workout session
@@ -61,7 +65,7 @@ final class WorkoutSession {
     }
     
     /// End the current workout session
-    func endSession() async {
+    func endSession() {
         guard state == .active, var workout = currentWorkout else { return }
         
         // Finalize current exercise if any
@@ -72,7 +76,7 @@ final class WorkoutSession {
         
         // Save to persistence
         do {
-            try await persistence.save(workout: workout)
+            try persistence.save(workout: workout)
         } catch {
             print("Failed to save workout: \(error)")
         }
@@ -96,7 +100,7 @@ final class WorkoutSession {
     
     /// Process a voice transcription and execute the appropriate action
     @discardableResult
-    func processVoiceInput(_ transcription: String) async -> ProcessResult {
+    func processVoiceInput(_ transcription: String) -> ProcessResult {
         // Auto-start session if needed
         if state == .idle {
             startSession()
@@ -106,7 +110,7 @@ final class WorkoutSession {
         
         switch parseResult {
         case .exerciseChanged(let exerciseName):
-            await setExercise(named: exerciseName)
+            setExercise(named: exerciseName)
             return .exerciseChanged(exerciseName)
             
         case .setLogged(let data):
@@ -161,7 +165,7 @@ final class WorkoutSession {
     // MARK: - Exercise Management
     
     /// Set the current exercise context
-    func setExercise(named name: String) async {
+    func setExercise(named name: String) {
         // Finalize previous exercise if different
         if let current = currentExercise, current.name != name {
             finalizeCurrentExercise()
@@ -173,7 +177,7 @@ final class WorkoutSession {
         currentExerciseSession = ExerciseSession(exercise: exercise)
         
         // Load ghost data
-        ghostSet = await persistence.getLastPerformance(for: name)
+        ghostSet = persistence.getLastPerformance(for: name)
         
         restStartTime = Date()
         haptics.exerciseChanged()
@@ -256,8 +260,8 @@ final class WorkoutSession {
     // MARK: - Warmup Detection (Automatic)
     
     /// Check if a weight is likely a warmup based on history
-    func isLikelyWarmup(weight: Double, for exercise: String) async -> Bool {
-        guard let ghost = await persistence.getLastPerformance(for: exercise) else {
+    func isLikelyWarmup(weight: Double, for exercise: String) -> Bool {
+        guard let ghost = persistence.getLastPerformance(for: exercise) else {
             return false
         }
         

@@ -2,7 +2,7 @@ import Foundation
 
 /// Local-first data persistence using JSON files
 /// Designed for offline-first operation with future sync capability
-actor PersistenceManager {
+final class PersistenceManager {
     static let shared = PersistenceManager()
     
     // MARK: - File Paths
@@ -31,10 +31,8 @@ actor PersistenceManager {
     
     // MARK: - Initialization
     
-    init() {
-        Task {
-            await ensureDirectoriesExist()
-        }
+    private init() {
+        ensureDirectoriesExist()
     }
     
     private func ensureDirectoriesExist() {
@@ -45,7 +43,7 @@ actor PersistenceManager {
     // MARK: - Workout Persistence
     
     /// Save a workout to disk
-    func save(workout: Workout) async throws {
+    func save(workout: Workout) throws {
         let filename = "\(workout.id.uuidString).json"
         let fileURL = workoutsDirectory.appendingPathComponent(filename)
         
@@ -57,11 +55,11 @@ actor PersistenceManager {
         try data.write(to: fileURL, options: .atomic)
         
         // Update index
-        await updateHistoryIndex(adding: workout)
+        updateHistoryIndex(adding: workout)
     }
     
     /// Load a specific workout by ID
-    func loadWorkout(id: UUID) async throws -> Workout? {
+    func loadWorkout(id: UUID) throws -> Workout? {
         let filename = "\(id.uuidString).json"
         let fileURL = workoutsDirectory.appendingPathComponent(filename)
         
@@ -77,7 +75,7 @@ actor PersistenceManager {
     }
     
     /// Load all workouts (sorted by date, most recent first)
-    func loadAllWorkouts() async throws -> [Workout] {
+    func loadAllWorkouts() throws -> [Workout] {
         let files = try fileManager.contentsOfDirectory(at: workoutsDirectory, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "json" }
         
@@ -97,11 +95,11 @@ actor PersistenceManager {
     }
     
     /// Delete a workout
-    func deleteWorkout(id: UUID) async throws {
+    func deleteWorkout(id: UUID) throws {
         let filename = "\(id.uuidString).json"
         let fileURL = workoutsDirectory.appendingPathComponent(filename)
         try fileManager.removeItem(at: fileURL)
-        await updateHistoryIndex(removing: id)
+        updateHistoryIndex(removing: id)
     }
     
     // MARK: - History Index (Fast Lookups)
@@ -122,8 +120,9 @@ actor PersistenceManager {
         let totalVolume: Double
     }
     
-    private func loadHistoryIndex() async throws -> HistoryIndex {
-        guard fileManager.fileExists(atPath: historyIndexFile.path) else {
+    private func loadHistoryIndex() -> HistoryIndex {
+        guard fileManager.fileExists(atPath: historyIndexFile.path),
+              let data = try? Data(contentsOf: historyIndexFile) else {
             return HistoryIndex(
                 workoutIds: [],
                 lastWorkoutDate: nil,
@@ -132,23 +131,28 @@ actor PersistenceManager {
             )
         }
         
-        let data = try Data(contentsOf: historyIndexFile)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(HistoryIndex.self, from: data)
+        return (try? decoder.decode(HistoryIndex.self, from: data)) ?? HistoryIndex(
+            workoutIds: [],
+            lastWorkoutDate: nil,
+            exerciseLastPerformed: [:],
+            exerciseHistory: [:]
+        )
     }
     
-    private func saveHistoryIndex(_ index: HistoryIndex) async throws {
+    private func saveHistoryIndex(_ index: HistoryIndex) {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = .prettyPrinted
         
-        let data = try encoder.encode(index)
-        try data.write(to: historyIndexFile, options: .atomic)
+        if let data = try? encoder.encode(index) {
+            try? data.write(to: historyIndexFile, options: .atomic)
+        }
     }
     
-    private func updateHistoryIndex(adding workout: Workout) async {
-        guard var index = try? await loadHistoryIndex() else { return }
+    private func updateHistoryIndex(adding workout: Workout) {
+        var index = loadHistoryIndex()
         
         if !index.workoutIds.contains(workout.id) {
             index.workoutIds.append(workout.id)
@@ -180,21 +184,21 @@ actor PersistenceManager {
             }
         }
         
-        try? await saveHistoryIndex(index)
+        saveHistoryIndex(index)
     }
     
-    private func updateHistoryIndex(removing workoutId: UUID) async {
-        guard var index = try? await loadHistoryIndex() else { return }
+    private func updateHistoryIndex(removing workoutId: UUID) {
+        var index = loadHistoryIndex()
         index.workoutIds.removeAll { $0 == workoutId }
-        try? await saveHistoryIndex(index)
+        saveHistoryIndex(index)
     }
     
     // MARK: - Ghost Data Queries
     
     /// Get the last time an exercise was performed with top set info
-    func getLastPerformance(for exerciseName: String) async -> GhostSet? {
-        guard let index = try? await loadHistoryIndex(),
-              let history = index.exerciseHistory[exerciseName],
+    func getLastPerformance(for exerciseName: String) -> GhostSet? {
+        let index = loadHistoryIndex()
+        guard let history = index.exerciseHistory[exerciseName],
               let lastEntry = history.last else {
             return nil
         }
@@ -212,9 +216,9 @@ actor PersistenceManager {
     }
     
     /// Get exercise history for analysis
-    func getExerciseHistory(_ exerciseName: String, limit: Int = 20) async -> [ExerciseHistoryEntry] {
-        guard let index = try? await loadHistoryIndex(),
-              let history = index.exerciseHistory[exerciseName] else {
+    func getExerciseHistory(_ exerciseName: String, limit: Int = 20) -> [ExerciseHistoryEntry] {
+        let index = loadHistoryIndex()
+        guard let history = index.exerciseHistory[exerciseName] else {
             return []
         }
         return Array(history.suffix(limit))
@@ -223,15 +227,15 @@ actor PersistenceManager {
     // MARK: - Export
     
     /// Export all data as JSON for backup/transfer
-    func exportAllData() async throws -> Data {
+    func exportAllData() throws -> Data {
         struct ExportData: Codable {
             let exportedAt: Date
             let workouts: [Workout]
             let index: HistoryIndex
         }
         
-        let workouts = try await loadAllWorkouts()
-        let index = try await loadHistoryIndex()
+        let workouts = try loadAllWorkouts()
+        let index = loadHistoryIndex()
         
         let export = ExportData(
             exportedAt: Date(),
@@ -247,8 +251,8 @@ actor PersistenceManager {
     }
     
     /// Export as CSV (simple format)
-    func exportAsCSV() async throws -> String {
-        let workouts = try await loadAllWorkouts()
+    func exportAsCSV() throws -> String {
+        let workouts = try loadAllWorkouts()
         
         var csv = "Date,Exercise,Set,Weight,Reps,RPE,Flags\n"
         

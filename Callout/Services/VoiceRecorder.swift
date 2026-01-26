@@ -121,29 +121,35 @@ final class VoiceRecorder: NSObject {
     // MARK: - Audio Session Configuration
     
     private func configureAudioSession() async throws {
-        // Request microphone permission if needed
-        let permissionGranted = await withCheckedContinuation { continuation in
-            audioSession.requestRecordPermission { granted in
-                continuation.resume(returning: granted)
+        // Request microphone permission
+        if #available(iOS 17.0, *) {
+            let permissionGranted = await AVAudioApplication.requestRecordPermission()
+            guard permissionGranted else {
+                throw VoiceRecorderError.microphonePermissionDenied
             }
-        }
-        
-        guard permissionGranted else {
-            throw VoiceRecorderError.microphonePermissionDenied
+        } else {
+            let permissionGranted = await withCheckedContinuation { continuation in
+                audioSession.requestRecordPermission { granted in
+                    continuation.resume(returning: granted)
+                }
+            }
+            guard permissionGranted else {
+                throw VoiceRecorderError.microphonePermissionDenied
+            }
         }
         
         // Configure for recording with Bluetooth support
         try audioSession.setCategory(
             .playAndRecord,
             mode: .default,
-            options: [.allowBluetooth, .allowBluetoothA2DP, .defaultToSpeaker]
+            options: [.allowBluetooth, .defaultToSpeaker]
         )
         
         try audioSession.setActive(true)
         
         // Prefer Bluetooth input if available (AirPods)
         if let bluetoothInput = audioSession.availableInputs?.first(where: {
-            $0.portType == .bluetoothHFP || $0.portType == .bluetoothA2DP
+            $0.portType == .bluetoothHFP
         }) {
             try audioSession.setPreferredInput(bluetoothInput)
         }

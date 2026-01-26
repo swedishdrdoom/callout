@@ -135,7 +135,7 @@ struct SettingsView: View {
     private func unitRow(unit: String, display: String) -> some View {
         Button {
             weightUnit = unit
-            HapticManager.shared.selection()
+            HapticManager.shared.selectionTap()
         } label: {
             HStack {
                 Text(display)
@@ -152,7 +152,7 @@ struct SettingsView: View {
     private func triggerRow(trigger: String, display: String) -> some View {
         Button {
             voiceTrigger = trigger
-            HapticManager.shared.selection()
+            HapticManager.shared.selectionTap()
         } label: {
             HStack {
                 Text(display)
