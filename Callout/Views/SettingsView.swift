@@ -7,7 +7,7 @@ struct SettingsView: View {
     @AppStorage("weightUnit") private var weightUnit = "kg"
     @AppStorage("voiceTrigger") private var voiceTrigger = "log"
     @AppStorage("hapticsEnabled") private var hapticsEnabled = true
-    @AppStorage("openai_api_key") private var apiKey = ""
+    @AppStorage("deepgram_api_key") private var apiKey = ""
     
     @State private var customTrigger = ""
     @State private var showingCustomInput = false
@@ -56,14 +56,14 @@ struct SettingsView: View {
                         Text("Say this word followed by weight and reps to log a set")
                     }
                     
-                    // OpenAI API Key
+                    // Deepgram API Key
                     Section {
                         Button {
                             tempAPIKey = apiKey
                             showingAPIKeyInput = true
                         } label: {
                             HStack {
-                                Text("OpenAI API Key")
+                                Text("Deepgram API Key")
                                     .foregroundStyle(.white)
                                 Spacer()
                                 if apiKey.isEmpty {
@@ -78,7 +78,7 @@ struct SettingsView: View {
                     } header: {
                         Text("Voice Transcription")
                     } footer: {
-                        Text("Required for voice input. Get one at platform.openai.com")
+                        Text("Required for voice input. Get one free at deepgram.com")
                     }
                     
                     // Haptics
@@ -155,8 +155,8 @@ struct SettingsView: View {
             } message: {
                 Text("Enter a custom word to trigger set logging")
             }
-            .alert("OpenAI API Key", isPresented: $showingAPIKeyInput) {
-                TextField("sk-...", text: $tempAPIKey)
+            .alert("Deepgram API Key", isPresented: $showingAPIKeyInput) {
+                TextField("dg_...", text: $tempAPIKey)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                 
@@ -166,12 +166,12 @@ struct SettingsView: View {
                 
                 Button("Save") {
                     apiKey = tempAPIKey
-                    WhisperService.shared.setAPIKey(tempAPIKey)
+                    DeepgramService.shared.setAPIKey(tempAPIKey)
                     HapticManager.shared.setLogged()
                     tempAPIKey = ""
                 }
             } message: {
-                Text("Enter your OpenAI API key for voice transcription")
+                Text("Enter your Deepgram API key for voice transcription")
             }
         }
     }

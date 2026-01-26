@@ -239,7 +239,7 @@ final class RestLoopViewModel {
     
     let session = WorkoutSession.shared
     private let recorder = VoiceRecorder()
-    private let whisper = WhisperService.shared
+    private let transcription = DeepgramService.shared
     private let airpods = AirPodController.shared
     private let widgetData = WidgetDataManager.shared
     
@@ -342,7 +342,7 @@ final class RestLoopViewModel {
     
     private func startListening() {
         // Check for API key
-        guard whisper.hasAPIKey else {
+        guard transcription.hasAPIKey else {
             showingAPIKeyAlert = true
             return
         }
@@ -388,16 +388,16 @@ final class RestLoopViewModel {
         
         Task {
             do {
-                // Transcribe with Whisper
-                let transcription = try await whisper.transcribe(fileURL: url)
+                // Transcribe with Deepgram
+                let transcribedText = try await transcription.transcribe(fileURL: url)
                 #if DEBUG
-                print("[RestLoopVM] Transcription: \(transcription)")
+                print("[RestLoopVM] Transcription: \(transcribedText)")
                 #endif
                 
                 // Process the command
-                let result = session.processVoiceInput(transcription)
+                let result = session.processVoiceInput(transcribedText)
                 
-                handleProcessResult(result, transcription: transcription)
+                handleProcessResult(result, transcription: transcribedText)
                 isProcessing = false
                 
                 // Update widget

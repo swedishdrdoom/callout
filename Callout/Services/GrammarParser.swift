@@ -1,14 +1,19 @@
 import Foundation
 
+// MARK: - GrammarParser
+
 /// Parses gym shorthand voice commands into structured data
-/// Handles: "bench 100 for 5", "same", "squat", "add pain", etc.
+/// Handles patterns like: "bench 100 for 5", "same", "squat", "add pain", etc.
 @Observable
 final class GrammarParser {
+    
+    // MARK: - Singleton
+    
     static let shared = GrammarParser()
     
     // MARK: - Configuration
     
-    /// User's preferred weight unit
+    /// User's preferred weight unit for ambiguous inputs
     var defaultUnit: WeightUnit = .kg
     
     /// Known exercise aliases (expanded over time)
@@ -123,6 +128,8 @@ final class GrammarParser {
     // MARK: - Main Parse Method
     
     /// Parse a voice transcription into a structured command
+    /// - Parameter input: Raw transcription text from voice input
+    /// - Returns: Parsed result indicating the type of command detected
     func parse(_ input: String) -> ParseResult {
         let text = input.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         

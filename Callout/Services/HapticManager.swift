@@ -1,8 +1,13 @@
 import UIKit
 
+// MARK: - HapticManager
+
 /// Centralized haptic feedback manager for Callout
 /// Provides consistent tactile feedback across the app
 final class HapticManager {
+    
+    // MARK: - Singleton
+    
     static let shared = HapticManager()
     
     // MARK: - Configuration
@@ -13,7 +18,7 @@ final class HapticManager {
         set { UserDefaults.standard.set(newValue, forKey: "hapticsEnabled") }
     }
     
-    // MARK: - Generators (lazy-loaded for performance)
+    // MARK: - Feedback Generators (lazy-loaded for performance)
     
     private lazy var impactLight = UIImpactFeedbackGenerator(style: .light)
     private lazy var impactMedium = UIImpactFeedbackGenerator(style: .medium)
@@ -26,7 +31,7 @@ final class HapticManager {
     // MARK: - Initialization
     
     private init() {
-        // Default to enabled
+        // Default to enabled on first launch
         if UserDefaults.standard.object(forKey: "hapticsEnabled") == nil {
             isEnabled = true
         }
@@ -65,25 +70,67 @@ final class HapticManager {
         impactMedium.prepare()
     }
     
-    // MARK: - Feedback Methods
+    // MARK: - Workout Feedback
     
-    /// Set logged successfully - satisfying double-tap
+    /// Set logged successfully - satisfying double-tap feel
     func setLogged() {
         guard isEnabled else { return }
         
         // Double rigid impact for that satisfying "logged!" feel
         impactRigid.impactOccurred()
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.impactRigid.impactOccurred()
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
+            self.impactRigid.impactOccurred()
         }
     }
     
-    /// Exercise changed - medium impact
+    /// Exercise changed - medium confirmation tap
     func exerciseChanged() {
         guard isEnabled else { return }
         impactMedium.impactOccurred()
     }
+    
+    /// Workout completed - success notification
+    func workoutCompleted() {
+        guard isEnabled else { return }
+        notificationGenerator.notificationOccurred(.success)
+    }
+    
+    /// Personal record achieved - celebratory haptic sequence
+    func personalRecord() {
+        guard isEnabled else { return }
+        
+        Task { @MainActor in
+            // Build-up sequence
+            self.impactLight.impactOccurred()
+            
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            self.impactMedium.impactOccurred()
+            
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            self.impactHeavy.impactOccurred()
+            
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            self.notificationGenerator.notificationOccurred(.success)
+        }
+    }
+    
+    // MARK: - Voice Feedback
+    
+    /// Voice recording started - soft tap
+    func recordingStarted() {
+        guard isEnabled else { return }
+        impactSoft.impactOccurred()
+    }
+    
+    /// Voice recording stopped - medium tap
+    func recordingStopped() {
+        guard isEnabled else { return }
+        impactMedium.impactOccurred()
+    }
+    
+    // MARK: - General Feedback
     
     /// Error occurred - error notification
     func error() {
@@ -97,49 +144,10 @@ final class HapticManager {
         notificationGenerator.notificationOccurred(.warning)
     }
     
-    /// Light selection feedback (scrolling, minor interactions)
+    /// Light selection feedback for minor interactions
     func selectionTap() {
         guard isEnabled else { return }
         selectionGenerator.selectionChanged()
-    }
-    
-    /// Personal record achieved - celebratory sequence!
-    func personalRecord() {
-        guard isEnabled else { return }
-        
-        // Build-up
-        impactLight.impactOccurred()
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.impactMedium.impactOccurred()
-        }
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            self?.impactHeavy.impactOccurred()
-        }
-        
-        // Success notification
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-            self?.notificationGenerator.notificationOccurred(.success)
-        }
-    }
-    
-    /// Workout completed - success notification
-    func workoutCompleted() {
-        guard isEnabled else { return }
-        notificationGenerator.notificationOccurred(.success)
-    }
-    
-    /// Voice recording started
-    func recordingStarted() {
-        guard isEnabled else { return }
-        impactSoft.impactOccurred()
-    }
-    
-    /// Voice recording stopped
-    func recordingStopped() {
-        guard isEnabled else { return }
-        impactMedium.impactOccurred()
     }
     
     /// Button tap - light impact
