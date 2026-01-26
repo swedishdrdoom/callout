@@ -27,6 +27,9 @@ struct RestLoopView: View {
                 
                 Spacer()
                 
+                // Live transcription preview
+                transcriptionPreview
+                
                 // Voice input indicator
                 voiceIndicator
                 
@@ -148,6 +151,20 @@ struct RestLoopView: View {
         }
     }
     
+    private var transcriptionPreview: some View {
+        Group {
+            if viewModel.isListening && !viewModel.liveTranscription.isEmpty {
+                Text(viewModel.liveTranscription)
+                    .font(.body)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                    .padding(.bottom, 8)
+            }
+        }
+    }
+    
     private var voiceIndicator: some View {
         HStack(spacing: 12) {
             // Mic button
@@ -216,8 +233,7 @@ struct RestLoopView: View {
 final class RestLoopViewModel {
     // Services
     let session = WorkoutSession.shared
-    private let recorder = VoiceRecorder()
-    private let whisper = WhisperService.shared
+    private let speech = SpeechRecognitionService.shared
     private let airpods = AirPodController.shared
     private let widgetData = WidgetDataManager.shared
     
@@ -229,6 +245,7 @@ final class RestLoopViewModel {
     var showingManualEntry = false
     var lastFeedback: String?
     var feedbackIsError = false
+    var liveTranscription: String = ""
     
     // Timer
     var restSeconds: Int = 0
@@ -257,10 +274,16 @@ final class RestLoopViewModel {
         setupAirPodCallbacks()
         airpods.activate()
         startRestTimer()
+        startTranscriptionObserver()
         
         // Auto-start session if not already active
         if !session.isActive {
             session.startSession()
+        }
+        
+        // Request speech authorization
+        Task {
+            await speech.requestAuthorization()
         }
     }
     
@@ -275,6 +298,14 @@ final class RestLoopViewModel {
         }
         airpods.onTriggerReleased = { [weak self] in
             self?.stopListening()
+        }
+    }
+    
+    private func startTranscriptionObserver() {
+        // Observe live transcription changes
+        Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            guard let self = self, self.isListening else { return }
+            self.liveTranscription = self.speech.currentTranscription
         }
     }
     
@@ -307,13 +338,16 @@ final class RestLoopViewModel {
         guard !isListening else { return }
         isListening = true
         lastFeedback = nil
+        liveTranscription = ""
+        
+        HapticManager.shared.recordingStarted()
         
         Task {
             do {
-                try await recorder.start()
+                try await speech.startListening()
             } catch {
                 await MainActor.run {
-                    showError("Microphone access required")
+                    showError("Speech recognition unavailable: \(error.localizedDescription)")
                     isListening = false
                 }
             }
@@ -324,43 +358,34 @@ final class RestLoopViewModel {
         guard isListening else { return }
         isListening = false
         
-        guard let audioURL = recorder.stop() else {
-            showError("No audio recorded")
+        HapticManager.shared.recordingStopped()
+        
+        // Get final transcription
+        let transcription = speech.stopListening()
+        
+        guard !transcription.isEmpty else {
+            showError("Didn't catch that")
             return
         }
         
-        processAudio(at: audioURL)
+        // Process the command
+        processTranscription(transcription)
     }
     
-    private func processAudio(at url: URL) {
+    private func processTranscription(_ transcription: String) {
         isProcessing = true
         
-        Task {
-            do {
-                // Transcribe with Whisper
-                let transcription = try await whisper.transcribe(fileURL: url)
-                
-                // Process the command
-                let result = session.processVoiceInput(transcription)
-                
-                await MainActor.run {
-                    handleProcessResult(result, transcription: transcription)
-                    isProcessing = false
-                    
-                    // Update widget
-                    updateWidgetData()
-                }
-                
-            } catch {
-                await MainActor.run {
-                    showError("Couldn't understand that")
-                    isProcessing = false
-                }
-            }
-            
-            // Clean up audio file
-            try? FileManager.default.removeItem(at: url)
-        }
+        // Process the command
+        let result = session.processVoiceInput(transcription)
+        
+        handleProcessResult(result, transcription: transcription)
+        isProcessing = false
+        
+        // Update widget
+        updateWidgetData()
+        
+        // Clear live transcription
+        liveTranscription = ""
     }
     
     private func handleProcessResult(_ result: WorkoutSession.ProcessResult, transcription: String) {
@@ -375,7 +400,7 @@ final class RestLoopViewModel {
             showFeedback("+ \(flag.displayName)")
             
         case .notUnderstood(let text):
-            showError("?\"\(text)\"")
+            showError("? \"\(text)\"")
             
         case .error(let message):
             showError(message)
