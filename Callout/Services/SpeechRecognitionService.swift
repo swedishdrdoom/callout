@@ -2,13 +2,19 @@ import Foundation
 import Speech
 import AVFoundation
 
+// MARK: - SpeechRecognitionService
+
 /// On-device speech recognition using Apple's SFSpeechRecognizer
 /// Free, private, works offline - no API key needed
 @Observable
+@MainActor
 final class SpeechRecognitionService: NSObject {
+    
+    // MARK: - Singleton
+    
     static let shared = SpeechRecognitionService()
     
-    // MARK: - State
+    // MARK: - Published State
     
     private(set) var isListening = false
     private(set) var isAvailable = false
@@ -35,7 +41,9 @@ final class SpeechRecognitionService: NSObject {
         speechRecognizer?.delegate = self
         isAvailable = speechRecognizer?.isAvailable ?? false
         
+        #if DEBUG
         print("[SpeechRecognition] Initialized, available: \(isAvailable)")
+        #endif
     }
     
     // MARK: - Authorization
@@ -46,7 +54,9 @@ final class SpeechRecognitionService: NSObject {
             SFSpeechRecognizer.requestAuthorization { [weak self] status in
                 DispatchQueue.main.async {
                     self?.authorizationStatus = status
+                    #if DEBUG
                     print("[SpeechRecognition] Authorization status: \(status.rawValue)")
+                    #endif
                     continuation.resume(returning: status == .authorized)
                 }
             }
@@ -98,7 +108,9 @@ final class SpeechRecognitionService: NSObject {
         // Enable on-device recognition if available (iOS 13+)
         if #available(iOS 13, *) {
             recognitionRequest.requiresOnDeviceRecognition = speechRecognizer.supportsOnDeviceRecognition
+            #if DEBUG
             print("[SpeechRecognition] On-device recognition: \(speechRecognizer.supportsOnDeviceRecognition)")
+            #endif
         }
         
         // Set up audio input
@@ -116,19 +128,27 @@ final class SpeechRecognitionService: NSObject {
         isListening = true
         currentTranscription = ""
         
+        #if DEBUG
         print("[SpeechRecognition] Started listening")
+        #endif
         
-        // Start recognition task
+        // Start recognition task - use Task to ensure main thread updates
         recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
-            guard let self = self else { return }
-            
-            if let result = result {
-                self.currentTranscription = result.bestTranscription.formattedString
-                print("[SpeechRecognition] Partial: \(self.currentTranscription)")
-            }
-            
-            if let error = error {
-                print("[SpeechRecognition] Error: \(error.localizedDescription)")
+            Task { @MainActor in
+                guard let self = self else { return }
+                
+                if let result = result {
+                    self.currentTranscription = result.bestTranscription.formattedString
+                    #if DEBUG
+                    print("[SpeechRecognition] Partial: \(self.currentTranscription)")
+                    #endif
+                }
+                
+                if let error = error {
+                    #if DEBUG
+                    print("[SpeechRecognition] Error: \(error.localizedDescription)")
+                    #endif
+                }
             }
         }
     }
@@ -153,7 +173,9 @@ final class SpeechRecognitionService: NSObject {
         isListening = false
         
         let finalTranscription = currentTranscription
+        #if DEBUG
         print("[SpeechRecognition] Stopped, final: \(finalTranscription)")
+        #endif
         
         // Deactivate audio session
         try? AVAudioSession.sharedInstance().setActive(false)
@@ -176,7 +198,9 @@ final class SpeechRecognitionService: NSObject {
 extension SpeechRecognitionService: SFSpeechRecognizerDelegate {
     func speechRecognizer(_ speechRecognizer: SFSpeechRecognizer, availabilityDidChange available: Bool) {
         isAvailable = available
+        #if DEBUG
         print("[SpeechRecognition] Availability changed: \(available)")
+        #endif
     }
 }
 

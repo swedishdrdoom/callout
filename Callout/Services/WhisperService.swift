@@ -1,9 +1,14 @@
 import Foundation
 
+// MARK: - WhisperService
+
 /// Service for transcribing audio using OpenAI's Whisper API
-/// Best accuracy for gym terminology
+/// Optimized with gym-specific vocabulary prompts for best accuracy
 @Observable
 final class WhisperService {
+    
+    // MARK: - Singleton
+    
     static let shared = WhisperService()
     
     // MARK: - Configuration
@@ -103,6 +108,12 @@ final class WhisperService {
     }
     
     /// Transcribe audio from a file URL
+    /// - Parameters:
+    ///   - fileURL: URL to the audio file
+    ///   - language: ISO language code (default: "en")
+    ///   - prompt: Custom vocabulary prompt (uses gym vocabulary by default)
+    /// - Returns: The transcribed text
+    /// - Throws: WhisperError on failure
     func transcribe(
         fileURL: URL,
         language: String? = "en",
@@ -149,7 +160,9 @@ final class WhisperService {
         )
         
         // Final boundary
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        if let finalBoundary = "--\(boundary)--\r\n".data(using: .utf8) {
+            body.append(finalBoundary)
+        }
         
         request.httpBody = body
         return request
@@ -199,23 +212,36 @@ enum WhisperError: LocalizedError {
 // MARK: - Data Extensions
 
 private extension Data {
+    /// Append a multipart form field
     mutating func appendMultipart(name: String, value: String, boundary: String) {
-        append("--\(boundary)\r\n".data(using: .utf8)!)
-        append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
-        append("\(value)\r\n".data(using: .utf8)!)
+        guard let boundaryData = "--\(boundary)\r\n".data(using: .utf8),
+              let dispositionData = "Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8),
+              let valueData = "\(value)\r\n".data(using: .utf8) else {
+            return
+        }
+        append(boundaryData)
+        append(dispositionData)
+        append(valueData)
     }
     
+    /// Append a multipart file field
     mutating func appendMultipart(
         name: String,
         filename: String,
         mimeType: String,
-        data: Data,
+        data fileData: Data,
         boundary: String
     ) {
-        append("--\(boundary)\r\n".data(using: .utf8)!)
-        append("Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
-        append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
-        append(data)
-        append("\r\n".data(using: .utf8)!)
+        guard let boundaryData = "--\(boundary)\r\n".data(using: .utf8),
+              let dispositionData = "Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(filename)\"\r\n".data(using: .utf8),
+              let contentTypeData = "Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8),
+              let newlineData = "\r\n".data(using: .utf8) else {
+            return
+        }
+        append(boundaryData)
+        append(dispositionData)
+        append(contentTypeData)
+        append(fileData)
+        append(newlineData)
     }
 }

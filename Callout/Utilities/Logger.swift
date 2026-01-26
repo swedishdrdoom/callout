@@ -10,9 +10,11 @@ enum Log {
         #endif
     }
     
-    /// Log an error (always logs, even in release)
+    /// Log an error (DEBUG builds only - use os_log for production logging)
     static func error(_ message: @autoclosure () -> String, file: String = #file) {
+        #if DEBUG
         let filename = (file as NSString).lastPathComponent.replacingOccurrences(of: ".swift", with: "")
         print("❌ [\(filename)] \(message())")
+        #endif
     }
 }

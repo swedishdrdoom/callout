@@ -231,6 +231,13 @@ final class WorkoutSession {
     // MARK: - Set Logging
     
     /// Log a set with the given parameters
+    /// - Parameters:
+    ///   - weight: Weight lifted
+    ///   - reps: Number of repetitions
+    ///   - rpe: Rate of perceived exertion (optional, 1-10)
+    ///   - isWarmup: Whether this is a warmup set
+    ///   - flags: Any flags to attach (pain, failure, etc.)
+    /// - Returns: The logged WorkSet
     @discardableResult
     func logSet(
         weight: Double,
@@ -259,20 +266,22 @@ final class WorkoutSession {
             flags: flags
         )
         
-        // Properly append to the session
-        _currentExerciseSession!.sets.append(set)
+        // Safely append to the session
+        _currentExerciseSession?.sets.append(set)
         lastLoggedSet = set
         restStartTime = Date()
         
         haptics.setLogged()
         #if DEBUG
-        print("[WorkoutSession] Logged set: \(weight) x \(reps) - Total sets now: \(_currentExerciseSession!.sets.count)")
+        let setCount = _currentExerciseSession?.sets.count ?? 0
+        print("[WorkoutSession] Logged set: \(weight) x \(reps) - Total sets now: \(setCount)")
         #endif
         
         return set
     }
     
-    /// Log the same set as last time
+    /// Log the same set as last time (repeat previous weight/reps)
+    /// - Returns: The logged WorkSet, or nil if no previous set exists
     @discardableResult
     func logSameAgain() -> WorkSet? {
         guard let last = lastLoggedSet else { return nil }
@@ -286,16 +295,19 @@ final class WorkoutSession {
     }
     
     /// Add a flag to the most recent set
+    /// - Parameter flag: The flag to add (pain, failure, etc.)
+    /// - Returns: Whether the flag was successfully added
     @discardableResult
     func addFlagToLastSet(_ flag: SetFlag) -> Bool {
-        guard _currentExerciseSession != nil,
-              !_currentExerciseSession!.sets.isEmpty else { return false }
+        guard var session = _currentExerciseSession,
+              !session.sets.isEmpty else { return false }
         
-        let lastIndex = _currentExerciseSession!.sets.count - 1
-        if !_currentExerciseSession!.sets[lastIndex].flags.contains(flag) {
-            _currentExerciseSession!.sets[lastIndex].flags.append(flag)
+        let lastIndex = session.sets.count - 1
+        if !session.sets[lastIndex].flags.contains(flag) {
+            session.sets[lastIndex].flags.append(flag)
+            _currentExerciseSession = session
         }
-        lastLoggedSet = _currentExerciseSession!.sets[lastIndex]
+        lastLoggedSet = _currentExerciseSession?.sets[lastIndex]
         
         haptics.tap()
         return true

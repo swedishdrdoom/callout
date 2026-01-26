@@ -146,7 +146,9 @@ final class AirPodController {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
             
         } catch {
+            #if DEBUG
             print("Failed to setup audio session: \(error)")
+            #endif
         }
     }
     
