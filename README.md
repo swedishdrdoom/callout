@@ -27,7 +27,23 @@ Callout is a workout logging app that prioritizes **zero-friction capture** over
 
 ## Status
 
-🚧 **Pre-development** — Product spec complete, implementation starting.
+🚧 **v0.1 Development** — Core Swift codebase complete, awaiting Xcode project setup.
+
+### Completed (4,600+ lines of Swift)
+- ✅ Data models (SetCard, Session, UserProfile)
+- ✅ SwiftData persistence layer
+- ✅ Grammar parser (full gym shorthand support)
+- ✅ Whisper API integration
+- ✅ Voice recorder (AVFoundation)
+- ✅ Haptic feedback system
+- ✅ WorkoutEngine (state management)
+- ✅ SwiftUI views (RestLoop, Receipt, Onboarding, Settings)
+
+### Next Steps
+- [ ] Create Xcode project and import files
+- [ ] Configure OpenAI API key
+- [ ] Build and test on device
+- [ ] Integrate AirPods tap detection
 
 ## Docs
 
