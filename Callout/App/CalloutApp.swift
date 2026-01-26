@@ -22,7 +22,7 @@ struct CalloutApp: App {
     /// Pre-initialize all services to eliminate first-use lag
     private func warmUpServices() {
         // Touch singletons to trigger lazy initialization
-        _ = WhisperService.shared
+        _ = DeepgramService.shared
         _ = WorkoutSession.shared
         _ = PersistenceManager.shared
         
