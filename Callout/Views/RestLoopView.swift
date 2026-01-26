@@ -377,7 +377,9 @@ final class RestLoopViewModel {
             do {
                 // Transcribe with Whisper
                 let transcription = try await whisper.transcribe(fileURL: url)
+                #if DEBUG
                 print("[RestLoopVM] Transcription: \(transcription)")
+                #endif
                 
                 // Process the command
                 let result = session.processVoiceInput(transcription)
@@ -391,7 +393,9 @@ final class RestLoopViewModel {
                 }
                 
             } catch {
+                #if DEBUG
                 print("[RestLoopVM] Transcription error: \(error)")
+                #endif
                 await MainActor.run {
                     showError("Transcription failed: \(error.localizedDescription)")
                     isProcessing = false
