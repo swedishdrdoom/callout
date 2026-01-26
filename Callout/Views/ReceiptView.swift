@@ -18,8 +18,12 @@ struct ReceiptView: View {
                         workoutStats
                         dottedDivider
                         exerciseList
-                        dottedDivider
-                        flagsSection
+                        
+                        if hasFlags {
+                            dottedDivider
+                            flagsSection
+                        }
+                        
                         dottedDivider
                         receiptFooter
                     }
@@ -34,6 +38,8 @@ struct ReceiptView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Done") {
+                        // Reset session when dismissing
+                        WorkoutSession.shared.reset()
                         dismiss()
                     }
                     .foregroundStyle(.white)
@@ -45,6 +51,12 @@ struct ReceiptView: View {
                             .foregroundStyle(.white)
                     }
                 }
+            }
+        }
+        .onAppear {
+            print("[ReceiptView] Showing workout with \(workout.exercises.count) exercises")
+            for ex in workout.exercises {
+                print("  - \(ex.exercise.name): \(ex.sets.count) sets")
             }
         }
     }
@@ -69,7 +81,7 @@ struct ReceiptView: View {
         HStack {
             statItem(label: "DURATION", value: formattedDuration)
             Spacer()
-            statItem(label: "SETS", value: "\(workout.totalSets)")
+            statItem(label: "SETS", value: "\(totalSets)")
             Spacer()
             statItem(label: "VOLUME", value: formattedVolume)
         }
@@ -89,17 +101,16 @@ struct ReceiptView: View {
     
     private var exerciseList: some View {
         VStack(alignment: .leading, spacing: 16) {
-            ForEach(workout.exercises) { exerciseSession in
-                exerciseRow(exerciseSession)
-            }
-            
-            // Show placeholder if empty
             if workout.exercises.isEmpty {
                 Text("No exercises logged")
                     .font(.system(size: 14, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.4))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 20)
+            } else {
+                ForEach(workout.exercises) { exerciseSession in
+                    exerciseRow(exerciseSession)
+                }
             }
         }
         .padding(.vertical, 16)
@@ -111,13 +122,14 @@ struct ReceiptView: View {
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .foregroundStyle(.white.opacity(0.8))
             
-            ForEach(session.sets) { set in
+            ForEach(Array(session.sets.enumerated()), id: \.element.id) { index, set in
                 HStack {
-                    Text("\(set.isWarmup ? "W" : " ")")
+                    Text("\(index + 1).")
                         .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.3))
+                        .frame(width: 20, alignment: .leading)
                     
-                    Text("\(set.weight, specifier: "%.1f")")
+                    Text(formatWeight(set.weight))
                         .font(.system(size: 14, design: .monospaced))
                         .foregroundStyle(.white)
                     
@@ -128,6 +140,12 @@ struct ReceiptView: View {
                     Text("\(set.reps)")
                         .font(.system(size: 14, design: .monospaced))
                         .foregroundStyle(.white)
+                    
+                    if set.isWarmup {
+                        Text("W")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.orange.opacity(0.7))
+                    }
                     
                     Spacer()
                     
@@ -154,7 +172,7 @@ struct ReceiptView: View {
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .foregroundStyle(.yellow.opacity(0.8))
                     
-                    Text("\(topSet.weight, specifier: "%.1f") × \(topSet.reps)")
+                    Text("\(formatWeight(topSet.weight)) × \(topSet.reps)")
                         .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(.yellow.opacity(0.8))
                     
@@ -167,30 +185,32 @@ struct ReceiptView: View {
         }
     }
     
+    private var hasFlags: Bool {
+        workout.exercises.contains { session in
+            session.sets.contains { !$0.flags.isEmpty }
+        }
+    }
+    
     private var flagsSection: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 8) {
             let allFlags = workout.exercises.flatMap { $0.sets.flatMap { $0.flags } }
             let uniqueFlags = Set(allFlags)
             
-            if !uniqueFlags.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("NOTES")
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.4))
-                    
-                    ForEach(Array(uniqueFlags), id: \.self) { flag in
-                        HStack {
-                            Text(flag.emoji)
-                            Text(flag.displayName)
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundStyle(.white.opacity(0.7))
-                        }
-                    }
+            Text("NOTES")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.4))
+            
+            ForEach(Array(uniqueFlags), id: \.self) { flag in
+                HStack {
+                    Text(flag.emoji)
+                    Text(flag.displayName)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.7))
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 16)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 16)
     }
     
     private var receiptFooter: some View {
@@ -233,12 +253,23 @@ struct ReceiptView: View {
         return String(format: "%d:%02d", minutes, seconds)
     }
     
+    private var totalSets: Int {
+        workout.exercises.reduce(0) { $0 + $1.sets.count }
+    }
+    
     private var formattedVolume: String {
-        let volume = workout.totalVolume
+        let volume = workout.exercises.reduce(0.0) { $0 + $1.totalVolume }
         if volume >= 1000 {
             return String(format: "%.1fk", volume / 1000)
         }
         return String(format: "%.0f", volume)
+    }
+    
+    private func formatWeight(_ weight: Double) -> String {
+        if weight.truncatingRemainder(dividingBy: 1) == 0 {
+            return String(format: "%.0f", weight)
+        }
+        return String(format: "%.1f", weight)
     }
     
     private func generateShareText() -> String {
@@ -247,12 +278,16 @@ struct ReceiptView: View {
         
         for session in workout.exercises {
             text += "\(session.exercise.name)\n"
-            if let top = session.topSet {
-                text += "  Top: \(top.weight) × \(top.reps)\n"
+            for (index, set) in session.sets.enumerated() {
+                text += "  \(index + 1). \(formatWeight(set.weight)) × \(set.reps)\n"
             }
+            if let top = session.topSet {
+                text += "  Top: \(formatWeight(top.weight)) × \(top.reps)\n"
+            }
+            text += "\n"
         }
         
-        text += "\nTotal: \(workout.totalSets) sets, \(Int(workout.totalVolume)) volume"
+        text += "Total: \(totalSets) sets"
         return text
     }
 }

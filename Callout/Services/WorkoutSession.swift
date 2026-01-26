@@ -19,9 +19,9 @@ final class WorkoutSession {
     }
     
     private(set) var state: State = .idle
-    private(set) var currentWorkout: Workout?
+    var currentWorkout: Workout?
     private(set) var currentExercise: Exercise?
-    private(set) var currentExerciseSession: ExerciseSession?
+    private var _currentExerciseSession: ExerciseSession?
     private(set) var lastLoggedSet: WorkSet?
     private(set) var restStartTime: Date?
     private(set) var ghostSet: GhostSet?
@@ -29,7 +29,7 @@ final class WorkoutSession {
     // MARK: - Computed
     
     var currentSetNumber: Int {
-        (currentExerciseSession?.sets.count ?? 0) + 1
+        (_currentExerciseSession?.sets.count ?? 0) + 1
     }
     
     var restElapsed: TimeInterval {
@@ -55,30 +55,38 @@ final class WorkoutSession {
     
     /// Start a new workout session
     func startSession() {
-        guard state == .idle else { return }
+        guard state == .idle || state == .finished else { return }
         
         currentWorkout = Workout()
+        _currentExerciseSession = nil
+        currentExercise = nil
+        lastLoggedSet = nil
+        ghostSet = nil
         state = .active
         restStartTime = Date()
         
         haptics.tap()
+        print("[WorkoutSession] Started new session")
     }
     
     /// End the current workout session
     func endSession() {
-        guard state == .active, var workout = currentWorkout else { return }
+        guard state == .active else { return }
+        guard var workout = currentWorkout else { return }
         
         // Finalize current exercise if any
         finalizeCurrentExercise()
         
         workout.endedAt = Date()
+        workout.exercises = currentWorkout?.exercises ?? []
         currentWorkout = workout
         
         // Save to persistence
         do {
             try persistence.save(workout: workout)
+            print("[WorkoutSession] Saved workout with \(workout.exercises.count) exercises")
         } catch {
-            print("Failed to save workout: \(error)")
+            print("[WorkoutSession] Failed to save workout: \(error)")
         }
         
         state = .finished
@@ -90,10 +98,11 @@ final class WorkoutSession {
         state = .idle
         currentWorkout = nil
         currentExercise = nil
-        currentExerciseSession = nil
+        _currentExerciseSession = nil
         lastLoggedSet = nil
         restStartTime = nil
         ghostSet = nil
+        print("[WorkoutSession] Reset")
     }
     
     // MARK: - Voice Command Processing
@@ -102,7 +111,7 @@ final class WorkoutSession {
     @discardableResult
     func processVoiceInput(_ transcription: String) -> ProcessResult {
         // Auto-start session if needed
-        if state == .idle {
+        if state == .idle || state == .finished {
             startSession()
         }
         
@@ -174,21 +183,29 @@ final class WorkoutSession {
         // Create or find exercise
         let exercise = Exercise(name: name)
         currentExercise = exercise
-        currentExerciseSession = ExerciseSession(exercise: exercise)
+        _currentExerciseSession = ExerciseSession(exercise: exercise)
         
         // Load ghost data
         ghostSet = persistence.getLastPerformance(for: name)
         
         restStartTime = Date()
         haptics.exerciseChanged()
+        print("[WorkoutSession] Set exercise: \(name)")
     }
     
     private func finalizeCurrentExercise() {
-        guard let session = currentExerciseSession,
-              !session.sets.isEmpty else { return }
+        guard let session = _currentExerciseSession else { return }
+        guard !session.sets.isEmpty else { 
+            print("[WorkoutSession] No sets to finalize")
+            return 
+        }
         
+        if currentWorkout == nil {
+            currentWorkout = Workout()
+        }
         currentWorkout?.exercises.append(session)
-        currentExerciseSession = nil
+        print("[WorkoutSession] Finalized exercise: \(session.exercise.name) with \(session.sets.count) sets")
+        _currentExerciseSession = nil
     }
     
     // MARK: - Set Logging
@@ -202,11 +219,17 @@ final class WorkoutSession {
         isWarmup: Bool = false,
         flags: [SetFlag] = []
     ) -> WorkSet {
+        // Auto-start session if needed
+        if state != .active {
+            startSession()
+        }
+        
         // Auto-create exercise session if needed
-        if currentExerciseSession == nil {
+        if _currentExerciseSession == nil {
             let exercise = currentExercise ?? Exercise(name: "Unknown Exercise")
             currentExercise = exercise
-            currentExerciseSession = ExerciseSession(exercise: exercise)
+            _currentExerciseSession = ExerciseSession(exercise: exercise)
+            print("[WorkoutSession] Auto-created exercise session for: \(exercise.name)")
         }
         
         let set = WorkSet(
@@ -217,11 +240,13 @@ final class WorkoutSession {
             flags: flags
         )
         
-        currentExerciseSession?.sets.append(set)
+        // Properly append to the session
+        _currentExerciseSession!.sets.append(set)
         lastLoggedSet = set
         restStartTime = Date()
         
         haptics.setLogged()
+        print("[WorkoutSession] Logged set: \(weight) x \(reps) - Total sets now: \(_currentExerciseSession!.sets.count)")
         
         return set
     }
@@ -242,16 +267,14 @@ final class WorkoutSession {
     /// Add a flag to the most recent set
     @discardableResult
     func addFlagToLastSet(_ flag: SetFlag) -> Bool {
-        guard var sets = currentExerciseSession?.sets,
-              !sets.isEmpty else { return false }
+        guard _currentExerciseSession != nil,
+              !_currentExerciseSession!.sets.isEmpty else { return false }
         
-        var lastSet = sets.removeLast()
-        if !lastSet.flags.contains(flag) {
-            lastSet.flags.append(flag)
+        let lastIndex = _currentExerciseSession!.sets.count - 1
+        if !_currentExerciseSession!.sets[lastIndex].flags.contains(flag) {
+            _currentExerciseSession!.sets[lastIndex].flags.append(flag)
         }
-        sets.append(lastSet)
-        currentExerciseSession?.sets = sets
-        lastLoggedSet = lastSet
+        lastLoggedSet = _currentExerciseSession!.sets[lastIndex]
         
         haptics.tap()
         return true
