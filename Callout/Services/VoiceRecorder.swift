@@ -1,7 +1,7 @@
 import AVFoundation
 import Foundation
 
-/// AVFoundation-based audio recorder optimized for Whisper transcription
+/// AVFoundation-based audio recorder optimized for speech transcription
 /// Supports AirPods and handles audio route changes gracefully
 @Observable
 final class VoiceRecorder: NSObject {
@@ -32,7 +32,7 @@ final class VoiceRecorder: NSObject {
     private var meterTimer: Timer?
     private let audioSession = AVAudioSession.sharedInstance()
     
-    /// Recording settings optimized for Whisper API
+    /// Recording settings optimized for speech-to-text APIs
     /// 16kHz mono AAC - good quality, small file size
     private let recordingSettings: [String: Any] = [
         AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
