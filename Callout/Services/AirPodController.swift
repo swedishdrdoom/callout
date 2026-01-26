@@ -135,7 +135,7 @@ final class AirPodController {
     /// Make this app the "Now Playing" app to receive remote commands
     private func becomeNowPlayingApp() {
         do {
-            try audioSession.setCategory(.playback, mode: .default, options: [.allowBluetooth])
+            try audioSession.setCategory(.playback, mode: .default, options: [.allowBluetoothHFP])
             try audioSession.setActive(true)
             
             // Set minimal now playing info

@@ -67,7 +67,7 @@ struct RestLoopView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Voice transcription requires an OpenAI API key. Add one in Settings.")
+            Text("Voice transcription requires a Deepgram API key. Add one in Settings.")
         }
     }
     

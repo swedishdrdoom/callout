@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Core Models
 
-struct Workout: Identifiable, Codable {
+struct Workout: Identifiable, Codable, Sendable {
     let id: UUID
     var startedAt: Date
     var endedAt: Date?
@@ -24,7 +24,7 @@ struct Workout: Identifiable, Codable {
     }
 }
 
-struct ExerciseSession: Identifiable, Codable {
+struct ExerciseSession: Identifiable, Codable, Sendable {
     let id: UUID
     let exercise: Exercise
     var sets: [WorkSet]
@@ -44,7 +44,7 @@ struct ExerciseSession: Identifiable, Codable {
     }
 }
 
-struct Exercise: Identifiable, Codable, Hashable {
+struct Exercise: Identifiable, Codable, Hashable, Sendable {
     let id: UUID
     var name: String
     var category: ExerciseCategory
@@ -66,7 +66,7 @@ enum ExerciseCategory: String, Codable, CaseIterable {
     }
 }
 
-struct WorkSet: Identifiable, Codable {
+struct WorkSet: Identifiable, Codable, Sendable {
     let id: UUID
     var weight: Double
     var reps: Int

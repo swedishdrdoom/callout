@@ -58,7 +58,7 @@ final class VoiceRecorder: NSObject {
                 try self.audioSession.setCategory(
                     .playAndRecord,
                     mode: .default,
-                    options: [.allowBluetooth, .defaultToSpeaker]
+                    options: [.allowBluetoothHFP, .defaultToSpeaker]
                 )
                 #if DEBUG
                 print("[VoiceRecorder] Audio session pre-warmed")
@@ -165,7 +165,7 @@ final class VoiceRecorder: NSObject {
         try audioSession.setCategory(
             .playAndRecord,
             mode: .default,
-            options: [.allowBluetooth, .defaultToSpeaker]
+            options: [.allowBluetoothHFP, .defaultToSpeaker]
         )
         
         try audioSession.setActive(true)
