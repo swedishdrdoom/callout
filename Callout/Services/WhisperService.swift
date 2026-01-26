@@ -1,14 +1,20 @@
 import Foundation
 
 /// Service for transcribing audio using OpenAI's Whisper API
-/// Configured with gym-specific vocabulary for better recognition
+/// Falls back to mock transcription if no API key is configured
 @Observable
 final class WhisperService {
     static let shared = WhisperService()
     
     // MARK: - Configuration
     
-    private let apiKey: String
+    private var apiKey: String {
+        // Check UserDefaults first, then environment
+        UserDefaults.standard.string(forKey: "openai_api_key") 
+            ?? ProcessInfo.processInfo.environment["OPENAI_API_KEY"] 
+            ?? ""
+    }
+    
     private let baseURL = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
     private let session: URLSession
     
@@ -25,29 +31,51 @@ final class WhisperService {
     private(set) var isTranscribing = false
     private(set) var lastError: WhisperError?
     
+    /// Whether to use mock transcription (for testing without API key)
+    var useMockTranscription: Bool {
+        get { UserDefaults.standard.bool(forKey: "useMockTranscription") }
+        set { UserDefaults.standard.set(newValue, forKey: "useMockTranscription") }
+    }
+    
+    var hasAPIKey: Bool {
+        !apiKey.isEmpty
+    }
+    
     // MARK: - Initialization
     
-    init(apiKey: String? = nil, session: URLSession = .shared) {
-        self.apiKey = apiKey ?? ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? ""
+    init(session: URLSession = .shared) {
         self.session = session
+        
+        // Default to mock if no API key
+        if !hasAPIKey && UserDefaults.standard.object(forKey: "useMockTranscription") == nil {
+            useMockTranscription = true
+        }
+    }
+    
+    /// Set the API key
+    func setAPIKey(_ key: String) {
+        UserDefaults.standard.set(key, forKey: "openai_api_key")
+        if !key.isEmpty {
+            useMockTranscription = false
+        }
     }
     
     // MARK: - Public API
     
     /// Transcribe audio data to text
-    /// - Parameters:
-    ///   - audioData: Audio data in supported format (m4a, mp3, wav, etc.)
-    ///   - language: Optional language hint (e.g., "en")
-    ///   - prompt: Optional custom prompt (defaults to gym vocabulary)
-    /// - Returns: Transcribed text
     func transcribe(
         audioData: Data,
         language: String? = "en",
         prompt: String? = nil
     ) async throws -> String {
-        guard !apiKey.isEmpty else {
-            throw WhisperError.missingAPIKey
+        
+        // Use mock if enabled or no API key
+        if useMockTranscription || apiKey.isEmpty {
+            print("[WhisperService] Using mock transcription")
+            return try await mockTranscribe()
         }
+        
+        print("[WhisperService] Transcribing with Whisper API...")
         
         isTranscribing = true
         lastError = nil
@@ -67,7 +95,9 @@ final class WhisperService {
         
         switch httpResponse.statusCode {
         case 200:
-            return try parseResponse(data)
+            let text = try parseResponse(data)
+            print("[WhisperService] Transcription: \(text)")
+            return text
         case 401:
             throw WhisperError.invalidAPIKey
         case 429:
@@ -87,6 +117,32 @@ final class WhisperService {
     ) async throws -> String {
         let data = try Data(contentsOf: fileURL)
         return try await transcribe(audioData: data, language: language, prompt: prompt)
+    }
+    
+    // MARK: - Mock Transcription
+    
+    /// Mock transcription for testing without API key
+    /// Returns random gym commands
+    private func mockTranscribe() async throws -> String {
+        // Simulate network delay
+        try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+        
+        let mockResponses = [
+            "bench press",
+            "100 for 5",
+            "squat",
+            "80 for 8",
+            "same",
+            "deadlift",
+            "120 for 3",
+            "overhead press",
+            "60 for 6",
+            "same again",
+        ]
+        
+        let response = mockResponses.randomElement() ?? "100 for 5"
+        print("[WhisperService] Mock transcription: \(response)")
+        return response
     }
     
     // MARK: - Private Methods
