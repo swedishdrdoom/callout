@@ -257,6 +257,7 @@ final class RestLoopViewModel {
     // MARK: - Private Properties
     
     /// Cached weight unit to avoid repeated UserDefaults reads
+    @ObservationIgnored
     private lazy var weightUnit: String = {
         UserDefaults.standard.string(forKey: "weightUnit") ?? "kg"
     }()
