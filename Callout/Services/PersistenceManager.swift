@@ -2,6 +2,7 @@ import Foundation
 
 /// Local-first data persistence using JSON files
 /// Designed for offline-first operation with future sync capability
+/// Uses background queue for disk I/O and in-memory cache for fast reads
 final class PersistenceManager {
     static let shared = PersistenceManager()
     
@@ -9,30 +10,42 @@ final class PersistenceManager {
     
     private let fileManager = FileManager.default
     
-    private var documentsDirectory: URL {
+    /// Background queue for all disk I/O operations
+    private let diskQueue = DispatchQueue(label: "com.callout.persistence", qos: .utility)
+    
+    /// In-memory cache for fast reads
+    private var historyIndexCache: HistoryIndex?
+    private var workoutsCache: [UUID: Workout] = [:]
+    private let cacheLock = NSLock()
+    
+    private lazy var documentsDirectory: URL = {
         fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-    }
+    }()
     
-    private var calloutDirectory: URL {
+    private lazy var calloutDirectory: URL = {
         documentsDirectory.appendingPathComponent("Callout", isDirectory: true)
-    }
+    }()
     
-    private var workoutsDirectory: URL {
+    private lazy var workoutsDirectory: URL = {
         calloutDirectory.appendingPathComponent("Workouts", isDirectory: true)
-    }
+    }()
     
-    private var exercisesFile: URL {
+    private lazy var exercisesFile: URL = {
         calloutDirectory.appendingPathComponent("exercises.json")
-    }
+    }()
     
-    private var historyIndexFile: URL {
+    private lazy var historyIndexFile: URL = {
         calloutDirectory.appendingPathComponent("history-index.json")
-    }
+    }()
     
     // MARK: - Initialization
     
     private init() {
         ensureDirectoriesExist()
+        // Pre-load history index into cache on init
+        diskQueue.async { [weak self] in
+            self?.warmUpCache()
+        }
     }
     
     private func ensureDirectoriesExist() {
@@ -40,26 +53,58 @@ final class PersistenceManager {
         try? fileManager.createDirectory(at: workoutsDirectory, withIntermediateDirectories: true)
     }
     
-    // MARK: - Workout Persistence
-    
-    /// Save a workout to disk
-    func save(workout: Workout) throws {
-        let filename = "\(workout.id.uuidString).json"
-        let fileURL = workoutsDirectory.appendingPathComponent(filename)
-        
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = .prettyPrinted
-        
-        let data = try encoder.encode(workout)
-        try data.write(to: fileURL, options: .atomic)
-        
-        // Update index
-        updateHistoryIndex(adding: workout)
+    /// Pre-load frequently accessed data into memory
+    private func warmUpCache() {
+        let index = loadHistoryIndexFromDisk()
+        cacheLock.lock()
+        historyIndexCache = index
+        cacheLock.unlock()
     }
     
-    /// Load a specific workout by ID
+    // MARK: - Workout Persistence
+    
+    /// Save a workout to disk (async on background queue for zero main-thread lag)
+    func save(workout: Workout) throws {
+        // Update in-memory cache immediately for fast reads
+        cacheLock.lock()
+        workoutsCache[workout.id] = workout
+        cacheLock.unlock()
+        
+        // Persist to disk on background queue
+        diskQueue.async { [weak self] in
+            guard let self = self else { return }
+            
+            let filename = "\(workout.id.uuidString).json"
+            let fileURL = self.workoutsDirectory.appendingPathComponent(filename)
+            
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = .prettyPrinted
+            
+            do {
+                let data = try encoder.encode(workout)
+                try data.write(to: fileURL, options: .atomic)
+            } catch {
+                #if DEBUG
+                print("[PersistenceManager] Failed to save workout: \(error)")
+                #endif
+            }
+            
+            // Update index
+            self.updateHistoryIndex(adding: workout)
+        }
+    }
+    
+    /// Load a specific workout by ID (checks cache first)
     func loadWorkout(id: UUID) throws -> Workout? {
+        // Check cache first for fast reads
+        cacheLock.lock()
+        if let cached = workoutsCache[id] {
+            cacheLock.unlock()
+            return cached
+        }
+        cacheLock.unlock()
+        
         let filename = "\(id.uuidString).json"
         let fileURL = workoutsDirectory.appendingPathComponent(filename)
         
@@ -71,7 +116,14 @@ final class PersistenceManager {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         
-        return try decoder.decode(Workout.self, from: data)
+        let workout = try decoder.decode(Workout.self, from: data)
+        
+        // Cache for future reads
+        cacheLock.lock()
+        workoutsCache[id] = workout
+        cacheLock.unlock()
+        
+        return workout
     }
     
     /// Load all workouts (sorted by date, most recent first)
@@ -120,7 +172,27 @@ final class PersistenceManager {
         let totalVolume: Double
     }
     
+    /// Load history index - uses in-memory cache for fast reads
     private func loadHistoryIndex() -> HistoryIndex {
+        cacheLock.lock()
+        if let cached = historyIndexCache {
+            cacheLock.unlock()
+            return cached
+        }
+        cacheLock.unlock()
+        
+        // Fallback to disk if cache miss
+        let index = loadHistoryIndexFromDisk()
+        
+        cacheLock.lock()
+        historyIndexCache = index
+        cacheLock.unlock()
+        
+        return index
+    }
+    
+    /// Load history index directly from disk (called by background operations)
+    private func loadHistoryIndexFromDisk() -> HistoryIndex {
         guard fileManager.fileExists(atPath: historyIndexFile.path),
               let data = try? Data(contentsOf: historyIndexFile) else {
             return HistoryIndex(
@@ -141,7 +213,14 @@ final class PersistenceManager {
         )
     }
     
+    /// Save history index - updates cache immediately, persists to disk on background
     private func saveHistoryIndex(_ index: HistoryIndex) {
+        // Update cache immediately
+        cacheLock.lock()
+        historyIndexCache = index
+        cacheLock.unlock()
+        
+        // Already on disk queue from updateHistoryIndex, just write
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = .prettyPrinted

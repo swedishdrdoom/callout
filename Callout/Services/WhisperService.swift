@@ -45,7 +45,9 @@ final class WhisperService {
     /// Set the API key
     func setAPIKey(_ key: String) {
         UserDefaults.standard.set(key, forKey: "openai_api_key")
-        print("[WhisperService] API key set: \(key.prefix(10))...")
+        #if DEBUG
+        print("[WhisperService] API key set")
+        #endif
     }
     
     // MARK: - Public API
@@ -58,11 +60,12 @@ final class WhisperService {
     ) async throws -> String {
         
         guard !apiKey.isEmpty else {
-            print("[WhisperService] No API key configured")
             throw WhisperError.missingAPIKey
         }
         
+        #if DEBUG
         print("[WhisperService] Transcribing \(audioData.count) bytes...")
+        #endif
         
         isTranscribing = true
         lastError = nil
@@ -80,12 +83,12 @@ final class WhisperService {
             throw WhisperError.invalidResponse
         }
         
-        print("[WhisperService] Response status: \(httpResponse.statusCode)")
-        
         switch httpResponse.statusCode {
         case 200:
             let text = try parseResponse(data)
+            #if DEBUG
             print("[WhisperService] Transcription: \(text)")
+            #endif
             return text
         case 401:
             throw WhisperError.invalidAPIKey
@@ -95,7 +98,6 @@ final class WhisperService {
             throw WhisperError.serverError(httpResponse.statusCode)
         default:
             let errorBody = String(data: data, encoding: .utf8)
-            print("[WhisperService] Error body: \(errorBody ?? "nil")")
             throw WhisperError.httpError(httpResponse.statusCode, errorBody)
         }
     }
@@ -106,7 +108,6 @@ final class WhisperService {
         language: String? = "en",
         prompt: String? = nil
     ) async throws -> String {
-        print("[WhisperService] Transcribing file: \(fileURL.lastPathComponent)")
         let data = try Data(contentsOf: fileURL)
         return try await transcribe(audioData: data, language: language, prompt: prompt)
     }

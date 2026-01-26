@@ -1,6 +1,8 @@
 import Foundation
 import Combine
 
+// MARK: - WorkoutSession
+
 /// Manages the active workout session state
 /// Handles exercise context, set logging, and "same" command resolution
 @Observable
@@ -10,13 +12,16 @@ final class WorkoutSession {
     
     static let shared = WorkoutSession()
     
-    // MARK: - State
+    // MARK: - Types
     
+    /// Session state machine
     enum State: Equatable {
         case idle
         case active
         case finished
     }
+    
+    // MARK: - Published State
     
     private(set) var state: State = .idle
     var currentWorkout: Workout?
@@ -26,17 +31,20 @@ final class WorkoutSession {
     private(set) var restStartTime: Date?
     private(set) var ghostSet: GhostSet?
     
-    // MARK: - Computed
+    // MARK: - Computed Properties
     
+    /// Current set number (1-indexed)
     var currentSetNumber: Int {
         (_currentExerciseSession?.sets.count ?? 0) + 1
     }
     
+    /// Time elapsed since last action (for rest timer)
     var restElapsed: TimeInterval {
         guard let start = restStartTime else { return 0 }
         return Date().timeIntervalSince(start)
     }
     
+    /// Whether a workout session is currently active
     var isActive: Bool {
         state == .active
     }
@@ -66,7 +74,9 @@ final class WorkoutSession {
         restStartTime = Date()
         
         haptics.tap()
+        #if DEBUG
         print("[WorkoutSession] Started new session")
+        #endif
     }
     
     /// End the current workout session
@@ -81,12 +91,19 @@ final class WorkoutSession {
         workout.exercises = currentWorkout?.exercises ?? []
         currentWorkout = workout
         
-        // Save to persistence
-        do {
-            try persistence.save(workout: workout)
-            print("[WorkoutSession] Saved workout with \(workout.exercises.count) exercises")
-        } catch {
-            print("[WorkoutSession] Failed to save workout: \(error)")
+        // Save to persistence (on background queue for performance)
+        let workoutToSave = workout
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            do {
+                try self?.persistence.save(workout: workoutToSave)
+                #if DEBUG
+                print("[WorkoutSession] Saved workout with \(workoutToSave.exercises.count) exercises")
+                #endif
+            } catch {
+                #if DEBUG
+                print("[WorkoutSession] Failed to save workout: \(error)")
+                #endif
+            }
         }
         
         state = .finished
@@ -102,7 +119,9 @@ final class WorkoutSession {
         lastLoggedSet = nil
         restStartTime = nil
         ghostSet = nil
+        #if DEBUG
         print("[WorkoutSession] Reset")
+        #endif
     }
     
     // MARK: - Voice Command Processing
@@ -190,21 +209,22 @@ final class WorkoutSession {
         
         restStartTime = Date()
         haptics.exerciseChanged()
+        #if DEBUG
         print("[WorkoutSession] Set exercise: \(name)")
+        #endif
     }
     
     private func finalizeCurrentExercise() {
         guard let session = _currentExerciseSession else { return }
-        guard !session.sets.isEmpty else { 
-            print("[WorkoutSession] No sets to finalize")
-            return 
-        }
+        guard !session.sets.isEmpty else { return }
         
         if currentWorkout == nil {
             currentWorkout = Workout()
         }
         currentWorkout?.exercises.append(session)
+        #if DEBUG
         print("[WorkoutSession] Finalized exercise: \(session.exercise.name) with \(session.sets.count) sets")
+        #endif
         _currentExerciseSession = nil
     }
     
@@ -229,7 +249,6 @@ final class WorkoutSession {
             let exercise = currentExercise ?? Exercise(name: "Unknown Exercise")
             currentExercise = exercise
             _currentExerciseSession = ExerciseSession(exercise: exercise)
-            print("[WorkoutSession] Auto-created exercise session for: \(exercise.name)")
         }
         
         let set = WorkSet(
@@ -246,7 +265,9 @@ final class WorkoutSession {
         restStartTime = Date()
         
         haptics.setLogged()
+        #if DEBUG
         print("[WorkoutSession] Logged set: \(weight) x \(reps) - Total sets now: \(_currentExerciseSession!.sets.count)")
+        #endif
         
         return set
     }

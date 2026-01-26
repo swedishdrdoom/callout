@@ -54,10 +54,12 @@ struct ReceiptView: View {
             }
         }
         .onAppear {
+            #if DEBUG
             print("[ReceiptView] Showing workout with \(workout.exercises.count) exercises")
             for ex in workout.exercises {
                 print("  - \(ex.exercise.name): \(ex.sets.count) sets")
             }
+            #endif
         }
     }
     

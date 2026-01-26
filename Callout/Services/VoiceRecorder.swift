@@ -46,6 +46,29 @@ final class VoiceRecorder: NSObject {
     override init() {
         super.init()
         setupNotifications()
+        // Pre-configure audio session on init for faster first-record
+        preWarmAudioSession()
+    }
+    
+    /// Pre-configure audio session to eliminate first-record delay
+    private func preWarmAudioSession() {
+        Task.detached(priority: .utility) { [weak self] in
+            guard let self = self else { return }
+            do {
+                try self.audioSession.setCategory(
+                    .playAndRecord,
+                    mode: .default,
+                    options: [.allowBluetooth, .defaultToSpeaker]
+                )
+                #if DEBUG
+                print("[VoiceRecorder] Audio session pre-warmed")
+                #endif
+            } catch {
+                #if DEBUG
+                print("[VoiceRecorder] Pre-warm failed: \(error)")
+                #endif
+            }
+        }
     }
     
     deinit {

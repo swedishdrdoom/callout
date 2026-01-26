@@ -229,16 +229,22 @@ struct RestLoopView: View {
 
 // MARK: - ViewModel
 
+/// View model for the rest loop interface
+/// Handles voice input, timer management, and workout state coordination
 @Observable
+@MainActor
 final class RestLoopViewModel {
-    // Services
+    
+    // MARK: - Services
+    
     let session = WorkoutSession.shared
     private let recorder = VoiceRecorder()
     private let whisper = WhisperService.shared
     private let airpods = AirPodController.shared
     private let widgetData = WidgetDataManager.shared
     
-    // UI State
+    // MARK: - UI State
+    
     var isListening = false
     var isProcessing = false
     var showingReceipt = false
@@ -248,7 +254,9 @@ final class RestLoopViewModel {
     var lastFeedback: String?
     var feedbackIsError = false
     
-    // Cache weight unit to avoid repeated UserDefaults reads
+    // MARK: - Private Properties
+    
+    /// Cached weight unit to avoid repeated UserDefaults reads
     private lazy var weightUnit: String = {
         UserDefaults.standard.string(forKey: "weightUnit") ?? "kg"
     }()
@@ -289,6 +297,7 @@ final class RestLoopViewModel {
     
     // MARK: - Lifecycle
     
+    /// Called when view appears - sets up services and auto-starts session
     func onAppear() {
         setupAirPodCallbacks()
         airpods.activate()
@@ -302,21 +311,27 @@ final class RestLoopViewModel {
         HapticManager.shared.prepareAll()
     }
     
+    /// Called when view disappears - cleans up AirPod controller
     func onDisappear() {
         airpods.deactivate()
     }
     
     private func setupAirPodCallbacks() {
         airpods.onTriggerActivated = { [weak self] in
-            self?.startListening()
+            Task { @MainActor in
+                self?.startListening()
+            }
         }
         airpods.onTriggerReleased = { [weak self] in
-            self?.stopListening()
+            Task { @MainActor in
+                self?.stopListening()
+            }
         }
     }
     
     // MARK: - Voice Input
     
+    /// Toggle voice input on/off
     func toggleVoiceInput() {
         if isListening {
             stopListening()
@@ -345,10 +360,8 @@ final class RestLoopViewModel {
                 print("[RestLoopVM] Recording started")
                 #endif
             } catch {
-                await MainActor.run {
-                    showError("Microphone access required")
-                    isListening = false
-                }
+                showError("Microphone access required")
+                isListening = false
             }
         }
     }
@@ -384,22 +397,18 @@ final class RestLoopViewModel {
                 // Process the command
                 let result = session.processVoiceInput(transcription)
                 
-                await MainActor.run {
-                    handleProcessResult(result, transcription: transcription)
-                    isProcessing = false
-                    
-                    // Update widget
-                    updateWidgetData()
-                }
+                handleProcessResult(result, transcription: transcription)
+                isProcessing = false
+                
+                // Update widget
+                updateWidgetData()
                 
             } catch {
                 #if DEBUG
                 print("[RestLoopVM] Transcription error: \(error)")
                 #endif
-                await MainActor.run {
-                    showError("Transcription failed: \(error.localizedDescription)")
-                    isProcessing = false
-                }
+                showError("Transcription failed: \(error.localizedDescription)")
+                isProcessing = false
             }
             
             // Clean up audio file
@@ -433,10 +442,12 @@ final class RestLoopViewModel {
         lastFeedback = message
         feedbackIsError = false
         
-        // Clear after delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-            if self?.lastFeedback == message {
-                self?.lastFeedback = nil
+        // Clear after delay using structured concurrency
+        let currentMessage = message
+        Task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            if lastFeedback == currentMessage {
+                lastFeedback = nil
             }
         }
     }
@@ -446,9 +457,12 @@ final class RestLoopViewModel {
         feedbackIsError = true
         HapticManager.shared.error()
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-            if self?.lastFeedback == message {
-                self?.lastFeedback = nil
+        // Clear after delay using structured concurrency
+        let currentMessage = message
+        Task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            if lastFeedback == currentMessage {
+                lastFeedback = nil
             }
         }
     }
@@ -471,14 +485,19 @@ final class RestLoopViewModel {
     
     // MARK: - Manual Entry
     
+    /// Log a set manually with given weight and reps
+    /// - Parameters:
+    ///   - weight: The weight lifted
+    ///   - reps: Number of repetitions
     func logManualSet(weight: Double, reps: Int) {
         session.logSet(weight: weight, reps: reps)
         showFeedback("✓ \(formatWeight(weight)) × \(reps)")
         updateWidgetData()
     }
     
-    // MARK: - Finish Workout
+    // MARK: - Workout Management
     
+    /// End the current workout and show receipt
     func finishWorkout() {
         session.endSession()
         showingReceipt = true
