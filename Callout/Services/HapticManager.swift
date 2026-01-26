@@ -34,6 +34,18 @@ final class HapticManager {
     
     // MARK: - Prepare (call before time-sensitive feedback)
     
+    /// Prepare ALL generators for immediate feedback - call on app launch
+    func prepareAll() {
+        guard isEnabled else { return }
+        impactLight.prepare()
+        impactMedium.prepare()
+        impactHeavy.prepare()
+        impactRigid.prepare()
+        impactSoft.prepare()
+        notificationGenerator.prepare()
+        selectionGenerator.prepare()
+    }
+    
     /// Prepare generators for immediate feedback
     func prepare() {
         guard isEnabled else { return }

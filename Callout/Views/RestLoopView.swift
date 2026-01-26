@@ -1,9 +1,16 @@
 import SwiftUI
 
+// MARK: - RestLoopView
+
 /// Main workout interface - the "rest loop"
 /// Minimal dark interface focused on rest timing and set logging
 struct RestLoopView: View {
+    
+    // MARK: - Properties
+    
     @State private var viewModel = RestLoopViewModel()
+    
+    // MARK: - Body
     
     var body: some View {
         ZStack {
@@ -117,11 +124,13 @@ struct RestLoopView: View {
                 .foregroundStyle(.white.opacity(0.4))
                 .tracking(2)
             
-            Text(viewModel.formattedRestTime)
-                .font(.system(size: 72, weight: .light, design: .monospaced))
-                .foregroundStyle(.white)
-                .contentTransition(.numericText())
-                .animation(.linear(duration: 0.1), value: viewModel.restSeconds)
+            // Use TimelineView to isolate timer updates and prevent full view re-renders
+            TimelineView(.periodic(from: .now, by: 1.0)) { _ in
+                Text(viewModel.formattedRestTime)
+                    .font(.system(size: 72, weight: .light, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .contentTransition(.numericText())
+            }
         }
     }
     
@@ -239,25 +248,43 @@ final class RestLoopViewModel {
     var lastFeedback: String?
     var feedbackIsError = false
     
-    // Timer
-    var restSeconds: Int = 0
-    private var restTimer: Timer?
-    
-    private var weightUnit: String {
+    // Cache weight unit to avoid repeated UserDefaults reads
+    private lazy var weightUnit: String = {
         UserDefaults.standard.string(forKey: "weightUnit") ?? "kg"
+    }()
+    
+    // Pre-allocated formatters for performance
+    private static let timeFormatter: (Int, Int) -> String = { minutes, seconds in
+        String(format: "%d:%02d", minutes, seconds)
     }
     
+    private static let weightFormatterWhole: NumberFormatter = {
+        let f = NumberFormatter()
+        f.minimumFractionDigits = 0
+        f.maximumFractionDigits = 0
+        return f
+    }()
+    
+    private static let weightFormatterDecimal: NumberFormatter = {
+        let f = NumberFormatter()
+        f.minimumFractionDigits = 1
+        f.maximumFractionDigits = 1
+        return f
+    }()
+    
+    /// Computed directly from session - no Timer needed, TimelineView handles updates
     var formattedRestTime: String {
-        let minutes = restSeconds / 60
-        let seconds = restSeconds % 60
-        return String(format: "%d:%02d", minutes, seconds)
+        let total = Int(session.restElapsed)
+        let minutes = total / 60
+        let seconds = total % 60
+        return Self.timeFormatter(minutes, seconds)
     }
     
     func formatWeight(_ weight: Double) -> String {
         if weight.truncatingRemainder(dividingBy: 1) == 0 {
-            return String(format: "%.0f", weight)
+            return Self.weightFormatterWhole.string(from: NSNumber(value: weight)) ?? "\(Int(weight))"
         }
-        return String(format: "%.1f", weight)
+        return Self.weightFormatterDecimal.string(from: NSNumber(value: weight)) ?? String(format: "%.1f", weight)
     }
     
     // MARK: - Lifecycle
@@ -265,17 +292,18 @@ final class RestLoopViewModel {
     func onAppear() {
         setupAirPodCallbacks()
         airpods.activate()
-        startRestTimer()
         
         // Auto-start session if not already active
         if !session.isActive {
             session.startSession()
         }
+        
+        // Pre-warm haptics for immediate feedback
+        HapticManager.shared.prepareAll()
     }
     
     func onDisappear() {
         airpods.deactivate()
-        stopRestTimer()
     }
     
     private func setupAirPodCallbacks() {
@@ -285,21 +313,6 @@ final class RestLoopViewModel {
         airpods.onTriggerReleased = { [weak self] in
             self?.stopListening()
         }
-    }
-    
-    // MARK: - Rest Timer
-    
-    private func startRestTimer() {
-        restSeconds = Int(session.restElapsed)
-        restTimer?.invalidate()
-        restTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            self?.restSeconds = Int(self?.session.restElapsed ?? 0)
-        }
-    }
-    
-    private func stopRestTimer() {
-        restTimer?.invalidate()
-        restTimer = nil
     }
     
     // MARK: - Voice Input
@@ -328,7 +341,9 @@ final class RestLoopViewModel {
         Task {
             do {
                 try await recorder.start()
+                #if DEBUG
                 print("[RestLoopVM] Recording started")
+                #endif
             } catch {
                 await MainActor.run {
                     showError("Microphone access required")
@@ -349,7 +364,9 @@ final class RestLoopViewModel {
             return
         }
         
+        #if DEBUG
         print("[RestLoopVM] Recording stopped, processing...")
+        #endif
         processAudio(at: audioURL)
     }
     
