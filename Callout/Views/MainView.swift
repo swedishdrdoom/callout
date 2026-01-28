@@ -263,6 +263,7 @@ struct InterpretedData: Decodable {
     let reps: Int?
     let name: String?
     let text: String?
+    let pr: String?  // "weight", "reps", or null
 }
 
 struct CompletedWorkout {
@@ -285,10 +286,15 @@ struct CompletedWorkout {
                 currentExercise = ExerciseData(name: interpreted.name ?? "Unknown", sets: [])
                 
             case "set":
+                var prType: PRType? = nil
+                if let pr = interpreted.pr {
+                    prType = PRType(rawValue: "PR: \(pr.capitalized)")
+                }
                 let set = SetData(
                     weight: interpreted.weight ?? 0,
                     reps: interpreted.reps ?? 0,
-                    unit: interpreted.unit ?? "kg"
+                    unit: interpreted.unit ?? "kg",
+                    prType: prType
                 )
                 if currentExercise != nil {
                     currentExercise?.sets.append(set)
@@ -327,6 +333,15 @@ struct SetData {
     let weight: Double
     let reps: Int
     let unit: String
+    var prType: PRType? = nil
+}
+
+enum PRType: String {
+    case weight = "PR: Weight"
+    case reps = "PR: Reps"
+    
+    var icon: String { "trophy.fill" }
+    var color: Color { Color(red: 1.0, green: 0.84, blue: 0) } // Gold
 }
 
 #Preview {

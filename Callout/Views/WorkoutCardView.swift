@@ -157,6 +157,18 @@ struct ExerciseCard: View {
                         Text("\(formatWeight(set.weight)) × \(set.reps)")
                             .font(.system(.body, design: .monospaced))
                             .foregroundStyle(CalloutTheme.white)
+                        
+                        // PR indicator
+                        if let pr = set.prType {
+                            HStack(spacing: 4) {
+                                Image(systemName: pr.icon)
+                                    .font(.caption2)
+                                Text(pr.rawValue)
+                                    .font(.caption2)
+                                    .fontWeight(.bold)
+                            }
+                            .foregroundStyle(pr.color)
+                        }
                     }
                 }
             }
