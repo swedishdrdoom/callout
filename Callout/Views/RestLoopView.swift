@@ -167,7 +167,7 @@ struct RestLoopView: View {
     
     private var voiceIndicator: some View {
         HStack(spacing: 12) {
-            // Mic button
+            // Mic button - disabled while processing to prevent overlapping requests
             Button {
                 viewModel.toggleVoiceInput()
             } label: {
@@ -182,6 +182,8 @@ struct RestLoopView: View {
                         .symbolEffect(.variableColor, isActive: viewModel.isListening)
                 }
             }
+            .disabled(viewModel.isProcessing)
+            .opacity(viewModel.isProcessing ? 0.5 : 1.0)
             
             if viewModel.isListening {
                 Text("Listening...")
@@ -348,7 +350,8 @@ final class RestLoopViewModel {
             return
         }
         
-        guard !isListening else { return }
+        // Prevent starting while already listening or processing
+        guard !isListening, !isProcessing else { return }
         isListening = true
         lastFeedback = nil
         
