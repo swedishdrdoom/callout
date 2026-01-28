@@ -16,7 +16,7 @@ struct CalloutApp: App {
                 // Main content (loads behind splash)
                 Group {
                     if hasCompletedOnboarding {
-                        RestLoopView()
+                        MainView()
                     } else {
                         OnboardingView()
                     }
