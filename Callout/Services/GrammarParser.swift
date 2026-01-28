@@ -303,8 +303,49 @@ final class GrammarParser {
     /// Parse "X reps Y kilos" pattern where reps come before weight
     /// Examples: "5 reps 100 kilos", "10 reps 50 kg", "8 reps 60"
     private func parseRepsFirstPattern(_ text: String, isWarmup: Bool) -> ParseResult.SetData? {
-        // Pattern: (number) reps (number) (optional unit)
-        // Matches: "5 reps 100", "5 reps 100 kilos", "5 reps 100 kg", "5 reps 100 pounds"
+        // Pattern 1: (number) unit (number) "reps" — e.g., "100 kgs 5 reps", "60 kg 8 reps"
+        let weightFirstWithUnitPattern = #"(\d+(?:\.\d+)?)\s*(kg|kgs|kilos?|kilograms?|lb|lbs|pounds?)\s+(\d+)\s*reps?"#
+        
+        if let regex = try? NSRegularExpression(pattern: weightFirstWithUnitPattern, options: .caseInsensitive),
+           let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) {
+            
+            // Extract weight (first number)
+            guard let weightRange = Range(match.range(at: 1), in: text),
+                  let weight = Double(text[weightRange]) else {
+                return nil
+            }
+            
+            // Extract unit
+            var unit: WeightUnit? = nil
+            if let unitRange = Range(match.range(at: 2), in: text) {
+                let unitStr = text[unitRange].lowercased()
+                if unitStr.hasPrefix("kg") || unitStr.hasPrefix("kilo") {
+                    unit = .kg
+                } else if unitStr.hasPrefix("lb") || unitStr.hasPrefix("pound") {
+                    unit = .lbs
+                }
+            }
+            
+            // Extract reps (second number)
+            guard let repsRange = Range(match.range(at: 3), in: text),
+                  let reps = Int(text[repsRange]) else {
+                return nil
+            }
+            
+            #if DEBUG
+            print("[GrammarParser] Parsed weight-first pattern: \(weight) \(unit?.rawValue ?? "units") x \(reps) reps")
+            #endif
+            
+            return ParseResult.SetData(
+                weight: weight,
+                reps: reps,
+                unit: unit,
+                rpe: nil,
+                isWarmup: isWarmup
+            )
+        }
+        
+        // Pattern 2: (number) "reps" (number) (optional unit) — e.g., "5 reps 100 kilos"
         let repsFirstPattern = #"(\d+)\s*reps?\s+(\d+(?:\.\d+)?)\s*(kg|kgs|kilos?|kilograms?|lb|lbs|pounds?)?"#
         
         guard let regex = try? NSRegularExpression(pattern: repsFirstPattern, options: .caseInsensitive),
