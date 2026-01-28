@@ -30,10 +30,10 @@ final class DeepgramService {
     // MARK: - Initialization
     
     init() {
-        // Configure session - longer timeout to handle slow Deepgram responses
+        // Configure session - aggressive timeout, we'll retry on failure
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 60
-        config.timeoutIntervalForResource = 120
+        config.timeoutIntervalForRequest = 8  // Fast fail, then retry
+        config.timeoutIntervalForResource = 16
         config.waitsForConnectivity = false
         self.session = URLSession(configuration: config)
     }
@@ -49,53 +49,77 @@ final class DeepgramService {
     // MARK: - Public API
     
     /// Transcribe audio data to text via backend proxy
+    /// Includes automatic retry on timeout
     func transcribe(
         audioData: Data,
         language: String? = "en",
         model: String = "nova-2"
     ) async throws -> String {
         
-        #if DEBUG
-        print("[DeepgramService] Transcribing \(audioData.count) bytes via backend...")
-        let startTime = CFAbsoluteTimeGetCurrent()
-        #endif
-        
         isTranscribing = true
         lastError = nil
         defer { isTranscribing = false }
         
-        var request = URLRequest(url: transcribeURL)
-        request.httpMethod = "POST"
-        request.setValue("audio/m4a", forHTTPHeaderField: "Content-Type")
-        request.httpBody = audioData
-        
-        let (data, response) = try await session.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw DeepgramError.invalidResponse
+        // Try up to 2 times (initial + 1 retry)
+        var lastError: Error?
+        for attempt in 1...2 {
+            do {
+                #if DEBUG
+                print("[DeepgramService] Attempt \(attempt): Transcribing \(audioData.count) bytes...")
+                let startTime = CFAbsoluteTimeGetCurrent()
+                #endif
+                
+                var request = URLRequest(url: transcribeURL)
+                request.httpMethod = "POST"
+                request.setValue("audio/m4a", forHTTPHeaderField: "Content-Type")
+                request.httpBody = audioData
+                
+                let (data, response) = try await session.data(for: request)
+                
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw DeepgramError.invalidResponse
+                }
+                
+                switch httpResponse.statusCode {
+                case 200:
+                    let result = try parseResponse(data)
+                    lastLatencyMs = result.latencyMs
+                    
+                    #if DEBUG
+                    let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+                    print("[DeepgramService] Success in \(String(format: "%.2f", elapsed))s, API latency: \(result.latencyMs)ms")
+                    print("[DeepgramService] Transcript: \(result.transcript)")
+                    #endif
+                    
+                    return result.transcript
+                    
+                case 429:
+                    throw DeepgramError.rateLimited
+                case 500...599:
+                    throw DeepgramError.serverError(httpResponse.statusCode)
+                default:
+                    let errorBody = String(data: data, encoding: .utf8)
+                    throw DeepgramError.httpError(httpResponse.statusCode, errorBody)
+                }
+                
+            } catch {
+                lastError = error
+                #if DEBUG
+                print("[DeepgramService] Attempt \(attempt) failed: \(error.localizedDescription)")
+                #endif
+                
+                // Don't retry on non-recoverable errors
+                if case DeepgramError.rateLimited = error { throw error }
+                if case DeepgramError.invalidAPIKey = error { throw error }
+                
+                // Brief pause before retry
+                if attempt < 2 {
+                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
+                }
+            }
         }
         
-        switch httpResponse.statusCode {
-        case 200:
-            let result = try parseResponse(data)
-            lastLatencyMs = result.latencyMs
-            
-            #if DEBUG
-            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-            print("[DeepgramService] Total time: \(String(format: "%.2f", elapsed))s, API latency: \(result.latencyMs)ms")
-            print("[DeepgramService] Transcript: \(result.transcript)")
-            #endif
-            
-            return result.transcript
-            
-        case 429:
-            throw DeepgramError.rateLimited
-        case 500...599:
-            throw DeepgramError.serverError(httpResponse.statusCode)
-        default:
-            let errorBody = String(data: data, encoding: .utf8)
-            throw DeepgramError.httpError(httpResponse.statusCode, errorBody)
-        }
+        throw lastError ?? DeepgramError.networkError(NSError(domain: "DeepgramService", code: -1))
     }
     
     /// Transcribe audio from a file URL
