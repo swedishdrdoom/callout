@@ -30,10 +30,10 @@ final class DeepgramService {
     // MARK: - Initialization
     
     init() {
-        // Configure session for low latency
+        // Configure session - longer timeout to handle slow Deepgram responses
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 60
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 120
         config.waitsForConnectivity = false
         self.session = URLSession(configuration: config)
     }
