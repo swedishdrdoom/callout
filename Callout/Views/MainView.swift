@@ -271,6 +271,73 @@ struct CompletedWorkout {
     let duration: TimeInterval
     let entries: [VoiceEntry]
     
+    /// Intelligent workout name based on exercises performed
+    var workoutName: String {
+        let exerciseNames = exercises.map { $0.name.lowercased() }
+        
+        if exerciseNames.isEmpty {
+            return "Workout"
+        }
+        
+        // Categorize exercises
+        var pushCount = 0
+        var pullCount = 0
+        var legsCount = 0
+        
+        let pushKeywords = ["bench", "press", "chest", "tricep", "dip", "pushup", "push up", "ohp", "overhead", "shoulder", "incline", "decline", "fly", "flye"]
+        let pullKeywords = ["row", "pull", "lat", "bicep", "curl", "chin", "back", "deadlift", "face pull", "pulldown", "shrug"]
+        let legsKeywords = ["squat", "leg", "lunge", "calf", "calves", "hamstring", "quad", "glute", "hip thrust", "rdl", "romanian"]
+        
+        for name in exerciseNames {
+            if pushKeywords.contains(where: { name.contains($0) }) {
+                pushCount += 1
+            }
+            if pullKeywords.contains(where: { name.contains($0) }) {
+                pullCount += 1
+            }
+            if legsKeywords.contains(where: { name.contains($0) }) {
+                legsCount += 1
+            }
+        }
+        
+        let total = exerciseNames.count
+        let threshold = 0.6 // 60% of exercises should match for a category
+        
+        // Check for dominant category
+        if Double(pushCount) / Double(total) >= threshold {
+            return "Push Day"
+        }
+        if Double(pullCount) / Double(total) >= threshold {
+            return "Pull Day"
+        }
+        if Double(legsCount) / Double(total) >= threshold {
+            return "Leg Day"
+        }
+        
+        // Check for combinations
+        let upperCount = pushCount + pullCount
+        if Double(upperCount) / Double(total) >= threshold && legsCount == 0 {
+            return "Upper Body"
+        }
+        if Double(legsCount) / Double(total) >= threshold {
+            return "Lower Body"
+        }
+        
+        // Full body or mixed
+        if pushCount > 0 && pullCount > 0 && legsCount > 0 {
+            return "Full Body"
+        }
+        
+        // Specific workout types
+        if exerciseNames.contains(where: { $0.contains("bench") }) && 
+           exerciseNames.contains(where: { $0.contains("squat") }) &&
+           exerciseNames.contains(where: { $0.contains("deadlift") }) {
+            return "Powerlifting"
+        }
+        
+        return "Mixed Workout"
+    }
+    
     var exercises: [ExerciseData] {
         var result: [ExerciseData] = []
         var currentExercise: ExerciseData?
