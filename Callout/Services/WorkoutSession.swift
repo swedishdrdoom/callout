@@ -124,6 +124,67 @@ final class WorkoutSession {
         #endif
     }
     
+    /// Reset the rest timer (for optimistic UI - called immediately on recording stop)
+    func resetRestTimer() {
+        restStartTime = Date()
+    }
+    
+    /// Log a pending set (optimistic UI - will be updated when backend responds)
+    /// - Returns: Index of the pending set for later update
+    @discardableResult
+    func logPendingSet() -> Int {
+        // Auto-start session if needed
+        if state != .active {
+            startSession()
+        }
+        
+        // Auto-create exercise session if needed
+        if _currentExerciseSession == nil {
+            let exercise = currentExercise ?? Exercise(name: "Pending")
+            currentExercise = exercise
+            _currentExerciseSession = ExerciseSession(exercise: exercise)
+        }
+        
+        // Create placeholder set - will be updated by backend
+        let set = WorkSet(weight: 0, reps: 0, isPending: true)
+        _currentExerciseSession?.sets.append(set)
+        lastLoggedSet = set
+        
+        #if DEBUG
+        print("[WorkoutSession] Logged pending set")
+        #endif
+        
+        return (_currentExerciseSession?.sets.count ?? 1) - 1
+    }
+    
+    /// Update the last pending set with actual data from backend
+    func updateLastPendingSet(weight: Double, reps: Int, unit: String?) {
+        guard var session = _currentExerciseSession,
+              !session.sets.isEmpty else { return }
+        
+        let lastIndex = session.sets.count - 1
+        session.sets[lastIndex].weight = weight
+        session.sets[lastIndex].reps = reps
+        session.sets[lastIndex].isPending = false
+        
+        _currentExerciseSession = session
+        lastLoggedSet = session.sets[lastIndex]
+        
+        #if DEBUG
+        print("[WorkoutSession] Updated pending set: \(weight) x \(reps)")
+        #endif
+    }
+    
+    /// Set current exercise by name (wrapper for setExercise)
+    func setCurrentExercise(_ name: String) {
+        setExercise(named: name)
+    }
+    
+    /// Repeat the last logged set
+    func repeatLastSet() {
+        _ = logSameAgain()
+    }
+    
     // MARK: - Voice Command Processing
     
     /// Process a voice transcription and execute the appropriate action

@@ -167,7 +167,7 @@ struct RestLoopView: View {
     
     private var voiceIndicator: some View {
         HStack(spacing: 12) {
-            // Mic button - disabled while processing to prevent overlapping requests
+            // Mic button
             Button {
                 viewModel.toggleVoiceInput()
             } label: {
@@ -182,17 +182,9 @@ struct RestLoopView: View {
                         .symbolEffect(.variableColor, isActive: viewModel.isListening)
                 }
             }
-            .disabled(viewModel.isProcessing)
-            .opacity(viewModel.isProcessing ? 0.5 : 1.0)
             
             if viewModel.isListening {
                 Text("Listening...")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.6))
-            } else if viewModel.isProcessing {
-                ProgressView()
-                    .tint(.white.opacity(0.6))
-                Text("Processing...")
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.6))
             }
@@ -350,8 +342,8 @@ final class RestLoopViewModel {
             return
         }
         
-        // Prevent starting while already listening or processing
-        guard !isListening, !isProcessing else { return }
+        // Prevent starting while already listening
+        guard !isListening else { return }
         isListening = true
         lastFeedback = nil
         
@@ -382,42 +374,100 @@ final class RestLoopViewModel {
         }
         
         #if DEBUG
-        print("[RestLoopVM] Recording stopped, processing...")
+        print("[RestLoopVM] Recording stopped")
         #endif
-        processAudio(at: audioURL)
+        
+        // OPTIMISTIC UI: Immediately show feedback and reset timer
+        // Don't wait for backend - user sees instant response
+        session.logPendingSet()  // Create placeholder entry
+        showFeedback("✓ Logged")
+        HapticManager.shared.setLogged()
+        
+        // Process in background - fire and forget
+        processAudioInBackground(at: audioURL)
     }
     
-    private func processAudio(at url: URL) {
-        isProcessing = true
-        
-        Task {
+    /// Fire-and-forget background processing
+    /// User already got feedback, this just updates the actual data
+    private func processAudioInBackground(at url: URL) {
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self = self else { return }
+            
             do {
-                // Transcribe with Deepgram
-                let transcribedText = try await transcription.transcribe(fileURL: url)
+                // Read audio data
+                let audioData = try Data(contentsOf: url)
+                
                 #if DEBUG
-                print("[RestLoopVM] Transcription: \(transcribedText)")
+                print("[RestLoopVM] Sending \(audioData.count) bytes to backend...")
                 #endif
                 
-                // Process the command
-                let result = session.processVoiceInput(transcribedText)
+                // Send to backend for transcription + LLM interpretation
+                let result = try await self.sendToBackend(audioData: audioData)
                 
-                handleProcessResult(result, transcription: transcribedText)
-                isProcessing = false
-                
-                // Update widget
-                updateWidgetData()
+                // Update session with interpreted result
+                await MainActor.run {
+                    self.handleBackendResult(result)
+                }
                 
             } catch {
                 #if DEBUG
-                print("[RestLoopVM] Transcription error: \(error)")
+                print("[RestLoopVM] Background processing failed: \(error)")
                 #endif
-                showError("Transcription failed: \(error.localizedDescription)")
-                isProcessing = false
+                // Silent fail - user already got "Logged" feedback
+                // Entry will show as "pending" in receipt if backend fails
             }
             
             // Clean up audio file
             try? FileManager.default.removeItem(at: url)
         }
+    }
+    
+    /// Send audio to backend and get interpreted result
+    private func sendToBackend(audioData: Data) async throws -> BackendResult {
+        // Try the new /api/understand endpoint first (transcribe + LLM)
+        let url = URL(string: "http://139.59.185.244:3100/api/understand")!
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("audio/m4a", forHTTPHeaderField: "Content-Type")
+        request.httpBody = audioData
+        request.timeoutInterval = 15 // Reasonable timeout for background
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw NSError(domain: "Backend", code: -1)
+        }
+        
+        return try JSONDecoder().decode(BackendResult.self, from: data)
+    }
+    
+    /// Handle the interpreted result from backend
+    private func handleBackendResult(_ result: BackendResult) {
+        #if DEBUG
+        print("[RestLoopVM] Backend result: \(result.transcript) → \(result.interpreted)")
+        #endif
+        
+        // Update the session with properly interpreted data
+        switch result.interpreted.type {
+        case "set":
+            if let weight = result.interpreted.weight,
+               let reps = result.interpreted.reps {
+                session.updateLastPendingSet(weight: weight, reps: reps, unit: result.interpreted.unit)
+            }
+        case "exercise":
+            if let name = result.interpreted.name {
+                session.setCurrentExercise(name)
+            }
+        case "repeat":
+            session.repeatLastSet()
+        default:
+            // Unknown - leave as pending
+            break
+        }
+        
+        updateWidgetData()
     }
     
     private func handleProcessResult(_ result: WorkoutSession.ProcessResult, transcription: String) {
@@ -593,6 +643,30 @@ struct ManualEntryView: View {
                 weightFocused = true
             }
         }
+    }
+}
+
+// MARK: - Backend Response Models
+
+/// Response from /api/understand endpoint
+struct BackendResult: Decodable {
+    let transcript: String
+    let interpreted: InterpretedData
+    let latency: LatencyInfo?
+    
+    struct InterpretedData: Decodable {
+        let type: String
+        let weight: Double?
+        let unit: String?
+        let reps: Int?
+        let name: String?
+        let text: String?
+    }
+    
+    struct LatencyInfo: Decodable {
+        let transcribe: Int?
+        let interpret: Int?
+        let total: Int?
     }
 }
 

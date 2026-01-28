@@ -73,6 +73,7 @@ struct WorkSet: Identifiable, Codable, Sendable {
     var rpe: Double?
     var rir: Int?
     var isWarmup: Bool
+    var isPending: Bool  // True until backend confirms interpretation
     var timestamp: Date
     var flags: [SetFlag]
     
@@ -83,6 +84,7 @@ struct WorkSet: Identifiable, Codable, Sendable {
         rpe: Double? = nil,
         rir: Int? = nil,
         isWarmup: Bool = false,
+        isPending: Bool = false,
         timestamp: Date = Date(),
         flags: [SetFlag] = []
     ) {
@@ -92,6 +94,7 @@ struct WorkSet: Identifiable, Codable, Sendable {
         self.rpe = rpe
         self.rir = rir
         self.isWarmup = isWarmup
+        self.isPending = isPending
         self.timestamp = timestamp
         self.flags = flags
     }
