@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - DeepgramService
 
-/// Service for transcribing audio using Deepgram's Nova API
+/// Service for transcribing audio using Callout's backend proxy
 /// Optimized for speed and gym vocabulary
 @Observable
 final class DeepgramService {
@@ -13,63 +13,50 @@ final class DeepgramService {
     
     // MARK: - Configuration
     
-    private var apiKey: String {
-        // Check UserDefaults first, then environment
-        UserDefaults.standard.string(forKey: "deepgram_api_key") 
-            ?? ProcessInfo.processInfo.environment["DEEPGRAM_API_KEY"] 
-            ?? ""
-    }
+    /// Backend API endpoint - proxies to Deepgram with gym keywords
+    private let transcribeURL = URL(string: "http://139.59.185.244:3100/api/transcribe")!
     
-    private let baseURL = URL(string: "https://api.deepgram.com/v1/listen")!
     private let session: URLSession
-    
-    /// Gym vocabulary keywords to boost transcription accuracy
-    private let gymKeywords = [
-        "bench press", "squat", "deadlift", "overhead press", "barbell row",
-        "pull up", "chin up", "dumbbell", "barbell", "cable", "machine",
-        "RPE", "RIR", "reps", "sets", "plates", "pounds", "kilograms",
-        "warmup", "working set", "PR", "personal record", "failure",
-        "drop set", "rest pause", "superset", "one rep max"
-    ]
     
     // MARK: - State
     
     private(set) var isTranscribing = false
     private(set) var lastError: DeepgramError?
+    private(set) var lastLatencyMs: Int?
     
-    var hasAPIKey: Bool {
-        !apiKey.isEmpty
-    }
+    /// Always available - backend handles API key
+    var hasAPIKey: Bool { true }
     
     // MARK: - Initialization
     
-    init(session: URLSession = .shared) {
-        self.session = session
+    init() {
+        // Configure session for low latency
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 60
+        config.waitsForConnectivity = false
+        self.session = URLSession(configuration: config)
     }
     
-    /// Set the API key
+    /// Legacy - no longer needed with backend proxy
     func setAPIKey(_ key: String) {
-        UserDefaults.standard.set(key, forKey: "deepgram_api_key")
+        // No-op: backend handles API key
         #if DEBUG
-        print("[DeepgramService] API key set")
+        print("[DeepgramService] API key management handled by backend")
         #endif
     }
     
     // MARK: - Public API
     
-    /// Transcribe audio data to text
+    /// Transcribe audio data to text via backend proxy
     func transcribe(
         audioData: Data,
         language: String? = "en",
         model: String = "nova-2"
     ) async throws -> String {
         
-        guard !apiKey.isEmpty else {
-            throw DeepgramError.missingAPIKey
-        }
-        
         #if DEBUG
-        print("[DeepgramService] Transcribing \(audioData.count) bytes...")
+        print("[DeepgramService] Transcribing \(audioData.count) bytes via backend...")
         let startTime = CFAbsoluteTimeGetCurrent()
         #endif
         
@@ -77,11 +64,10 @@ final class DeepgramService {
         lastError = nil
         defer { isTranscribing = false }
         
-        let request = try buildRequest(
-            audioData: audioData,
-            language: language,
-            model: model
-        )
+        var request = URLRequest(url: transcribeURL)
+        request.httpMethod = "POST"
+        request.setValue("audio/m4a", forHTTPHeaderField: "Content-Type")
+        request.httpBody = audioData
         
         let (data, response) = try await session.data(for: request)
         
@@ -91,14 +77,17 @@ final class DeepgramService {
         
         switch httpResponse.statusCode {
         case 200:
-            let text = try parseResponse(data)
+            let result = try parseResponse(data)
+            lastLatencyMs = result.latencyMs
+            
             #if DEBUG
             let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-            print("[DeepgramService] Transcription in \(String(format: "%.2f", elapsed))s: \(text)")
+            print("[DeepgramService] Total time: \(String(format: "%.2f", elapsed))s, API latency: \(result.latencyMs)ms")
+            print("[DeepgramService] Transcript: \(result.transcript)")
             #endif
-            return text
-        case 401, 403:
-            throw DeepgramError.invalidAPIKey
+            
+            return result.transcript
+            
         case 429:
             throw DeepgramError.rateLimited
         case 500...599:
@@ -121,69 +110,28 @@ final class DeepgramService {
     
     // MARK: - Private Methods
     
-    private func buildRequest(
-        audioData: Data,
-        language: String?,
-        model: String
-    ) throws -> URLRequest {
-        // Build URL with query parameters
-        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
-        var queryItems = [
-            URLQueryItem(name: "model", value: model),
-            URLQueryItem(name: "smart_format", value: "true"),
-            URLQueryItem(name: "punctuate", value: "true"),
-            URLQueryItem(name: "numerals", value: "true")  // Better number handling
-        ]
-        
-        if let language {
-            queryItems.append(URLQueryItem(name: "language", value: language))
+    private func parseResponse(_ data: Data) throws -> TranscribeResponse {
+        struct APIResponse: Decodable {
+            let transcript: String
+            let latencyMs: Int
         }
         
-        // Add keywords for gym vocabulary boosting
-        for keyword in gymKeywords {
-            queryItems.append(URLQueryItem(name: "keywords", value: keyword))
-        }
-        
-        components.queryItems = queryItems
-        
-        var request = URLRequest(url: components.url!)
-        request.httpMethod = "POST"
-        request.setValue("Token \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("audio/m4a", forHTTPHeaderField: "Content-Type")
-        request.httpBody = audioData
-        
-        return request
+        let response = try JSONDecoder().decode(APIResponse.self, from: data)
+        return TranscribeResponse(transcript: response.transcript, latencyMs: response.latencyMs)
     }
-    
-    private func parseResponse(_ data: Data) throws -> String {
-        struct DeepgramResponse: Decodable {
-            struct Results: Decodable {
-                struct Channel: Decodable {
-                    struct Alternative: Decodable {
-                        let transcript: String
-                    }
-                    let alternatives: [Alternative]
-                }
-                let channels: [Channel]
-            }
-            let results: Results
-        }
-        
-        let response = try JSONDecoder().decode(DeepgramResponse.self, from: data)
-        
-        // Get the best transcript from first channel, first alternative
-        guard let transcript = response.results.channels.first?.alternatives.first?.transcript else {
-            throw DeepgramError.emptyTranscription
-        }
-        
-        return transcript
-    }
+}
+
+// MARK: - Response
+
+private struct TranscribeResponse {
+    let transcript: String
+    let latencyMs: Int
 }
 
 // MARK: - Errors
 
 enum DeepgramError: LocalizedError {
-    case missingAPIKey
+    case missingAPIKey  // Legacy, kept for compatibility
     case invalidAPIKey
     case rateLimited
     case serverError(Int)
@@ -195,9 +143,9 @@ enum DeepgramError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingAPIKey:
-            return "Deepgram API key not configured"
+            return "Backend unavailable"
         case .invalidAPIKey:
-            return "Invalid Deepgram API key"
+            return "Invalid API configuration"
         case .rateLimited:
             return "Rate limited - please wait and try again"
         case .serverError(let code):

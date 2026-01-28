@@ -7,12 +7,9 @@ struct SettingsView: View {
     @AppStorage("weightUnit") private var weightUnit = "kg"
     @AppStorage("voiceTrigger") private var voiceTrigger = "log"
     @AppStorage("hapticsEnabled") private var hapticsEnabled = true
-    @AppStorage("deepgram_api_key") private var apiKey = ""
     
     @State private var customTrigger = ""
     @State private var showingCustomInput = false
-    @State private var showingAPIKeyInput = false
-    @State private var tempAPIKey = ""
     
     var body: some View {
         NavigationStack {
@@ -54,31 +51,6 @@ struct SettingsView: View {
                         Text("Voice Trigger")
                     } footer: {
                         Text("Say this word followed by weight and reps to log a set")
-                    }
-                    
-                    // Deepgram API Key
-                    Section {
-                        Button {
-                            tempAPIKey = apiKey
-                            showingAPIKeyInput = true
-                        } label: {
-                            HStack {
-                                Text("Deepgram API Key")
-                                    .foregroundStyle(.white)
-                                Spacer()
-                                if apiKey.isEmpty {
-                                    Text("Not set")
-                                        .foregroundStyle(.red.opacity(0.7))
-                                } else {
-                                    Text("••••\(String(apiKey.suffix(4)))")
-                                        .foregroundStyle(.green.opacity(0.7))
-                                }
-                            }
-                        }
-                    } header: {
-                        Text("Voice Transcription")
-                    } footer: {
-                        Text("Required for voice input. Get one free at deepgram.com")
                     }
                     
                     // Haptics
@@ -154,24 +126,6 @@ struct SettingsView: View {
                 }
             } message: {
                 Text("Enter a custom word to trigger set logging")
-            }
-            .alert("Deepgram API Key", isPresented: $showingAPIKeyInput) {
-                TextField("dg_...", text: $tempAPIKey)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                
-                Button("Cancel", role: .cancel) {
-                    tempAPIKey = ""
-                }
-                
-                Button("Save") {
-                    apiKey = tempAPIKey
-                    DeepgramService.shared.setAPIKey(tempAPIKey)
-                    HapticManager.shared.setLogged()
-                    tempAPIKey = ""
-                }
-            } message: {
-                Text("Enter your Deepgram API key for voice transcription")
             }
         }
     }
