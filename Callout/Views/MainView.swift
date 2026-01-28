@@ -8,6 +8,9 @@ enum CalloutTheme {
     static let white = Color.white
     static let dimWhite = Color.white.opacity(0.6)
     static let subtleWhite = Color.white.opacity(0.3)
+    
+    // Typography
+    static let headerFont = "Unbounded-Bold"
 }
 
 // MARK: - Main View

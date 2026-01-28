@@ -54,7 +54,7 @@ struct WorkoutCardView: View {
             .padding(.top, 16)
             
             Text(workout?.workoutName.uppercased() ?? "WORKOUT")
-                .font(.system(size: 28, weight: .black, design: .default))
+                .font(.custom(CalloutTheme.headerFont, size: 28))
                 .tracking(4)
                 .foregroundStyle(CalloutTheme.white)
                 .padding(.top, 20)
