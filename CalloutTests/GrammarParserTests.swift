@@ -139,27 +139,27 @@ final class GrammarParserTests: XCTestCase {
     
     func testParseSame() {
         let result = parser.parse("same")
-        XCTAssertEqual(result, .sameAgain)
+        assertSameAgain(result)
     }
     
     func testParseSameAgain() {
         let result = parser.parse("same again")
-        XCTAssertEqual(result, .sameAgain)
+        assertSameAgain(result)
     }
     
     func testParseAgain() {
         let result = parser.parse("again")
-        XCTAssertEqual(result, .sameAgain)
+        assertSameAgain(result)
     }
     
     func testParseRepeat() {
         let result = parser.parse("repeat")
-        XCTAssertEqual(result, .sameAgain)
+        assertSameAgain(result)
     }
     
     func testParseOneMore() {
         let result = parser.parse("one more")
-        XCTAssertEqual(result, .sameAgain)
+        assertSameAgain(result)
     }
     
     // MARK: - Exercise Change Tests
@@ -276,12 +276,12 @@ final class GrammarParserTests: XCTestCase {
     
     func testParseEmptyString() {
         let result = parser.parse("")
-        XCTAssertEqual(result, .empty)
+        assertEmpty(result)
     }
     
     func testParseWhitespaceOnly() {
         let result = parser.parse("   ")
-        XCTAssertEqual(result, .empty)
+        assertEmpty(result)
     }
     
     func testParseUnknownText() {
@@ -305,23 +305,16 @@ final class GrammarParserTests: XCTestCase {
     }
 }
 
-// MARK: - ParseResult Equatable for testing
+// MARK: - Helper for testing ParseResult
 
-extension GrammarParser.ParseResult: Equatable {
-    public static func == (lhs: GrammarParser.ParseResult, rhs: GrammarParser.ParseResult) -> Bool {
-        switch (lhs, rhs) {
-        case (.sameAgain, .sameAgain):
-            return true
-        case (.empty, .empty):
-            return true
-        case (.exerciseChanged(let l), .exerciseChanged(let r)):
-            return l == r
-        case (.addFlag(let l), .addFlag(let r)):
-            return l == r
-        case (.unknown(let l), .unknown(let r)):
-            return l == r
-        default:
-            return false
-        }
+extension GrammarParserTests {
+    func assertSameAgain(_ result: GrammarParser.ParseResult, file: StaticString = #file, line: UInt = #line) {
+        if case .sameAgain = result { return }
+        XCTFail("Expected sameAgain, got \(result)", file: file, line: line)
+    }
+    
+    func assertEmpty(_ result: GrammarParser.ParseResult, file: StaticString = #file, line: UInt = #line) {
+        if case .empty = result { return }
+        XCTFail("Expected empty, got \(result)", file: file, line: line)
     }
 }

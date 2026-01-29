@@ -29,6 +29,7 @@ final class ConfigurationTests: XCTestCase {
 }
 
 /// Tests for BackendModels - API response decoding
+@MainActor
 final class BackendModelsTests: XCTestCase {
     
     func testDecodeSetResponse() throws {

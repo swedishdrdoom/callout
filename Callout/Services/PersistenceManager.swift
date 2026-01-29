@@ -71,10 +71,11 @@ final class PersistenceManager {
         cacheLock.unlock()
         
         // Persist to disk on background queue
+        let workoutToSave = workout // Capture value explicitly for Sendable
         diskQueue.async { [weak self] in
             guard let self = self else { return }
             
-            let filename = "\(workout.id.uuidString).json"
+            let filename = "\(workoutToSave.id.uuidString).json"
             let fileURL = self.workoutsDirectory.appendingPathComponent(filename)
             
             let encoder = JSONEncoder()
@@ -82,7 +83,7 @@ final class PersistenceManager {
             encoder.outputFormatting = .prettyPrinted
             
             do {
-                let data = try encoder.encode(workout)
+                let data = try encoder.encode(workoutToSave)
                 try data.write(to: fileURL, options: .atomic)
             } catch {
                 #if DEBUG
@@ -91,7 +92,7 @@ final class PersistenceManager {
             }
             
             // Update index
-            self.updateHistoryIndex(adding: workout)
+            self.updateHistoryIndex(adding: workoutToSave)
         }
     }
     

@@ -181,26 +181,22 @@ final class MainViewModel {
     }
     
     private func processAudio(url: URL, entryId: UUID) {
-        Task.detached(priority: .userInitiated) { [weak self] in
+        Task { [weak self] in
             defer { try? FileManager.default.removeItem(at: url) }
             
             guard let audioData = try? Data(contentsOf: url) else { return }
             
             do {
                 let result = try await self?.sendToBackend(audioData: audioData)
-                await MainActor.run {
-                    self?.updateEntry(id: entryId, with: result)
-                }
+                self?.updateEntry(id: entryId, with: result)
             } catch {
-                await MainActor.run {
-                    self?.markEntryFailed(id: entryId)
-                }
+                self?.markEntryFailed(id: entryId)
             }
         }
     }
     
     private func sendToBackend(audioData: Data) async throws -> BackendResponse {
-        let url = URL(string: "http://139.59.185.244:3100/api/understand")!
+        let url = URL(string: "\(Configuration.backendBaseURL)/api/understand")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("audio/m4a", forHTTPHeaderField: "Content-Type")

@@ -2,6 +2,7 @@ import XCTest
 @testable import Callout
 
 /// Tests for WorkoutModels - data structures and computed properties
+@MainActor
 final class WorkoutModelsTests: XCTestCase {
     
     // MARK: - WorkSet Tests
