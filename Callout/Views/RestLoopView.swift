@@ -427,7 +427,7 @@ final class RestLoopViewModel {
     /// Send audio to backend and get interpreted result
     private func sendToBackend(audioData: Data) async throws -> BackendResult {
         // Try the new /api/understand endpoint first (transcribe + LLM)
-        let url = URL(string: "http://139.59.185.244:3100/api/understand")!
+        let url = URL(string: "\(Configuration.backendBaseURL)/api/understand")!
         
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -470,28 +470,6 @@ final class RestLoopViewModel {
         }
         
         updateWidgetData()
-    }
-    
-    private func handleProcessResult(_ result: WorkoutSession.ProcessResult, transcription: String) {
-        switch result {
-        case .exerciseChanged(let name):
-            showFeedback("→ \(name)")
-            
-        case .setLogged(let set):
-            showFeedback("✓ \(formatWeight(set.weight)) × \(set.reps)")
-            
-        case .flagAdded(let flag):
-            showFeedback("+ \(flag.displayName)")
-            
-        case .notUnderstood(let text):
-            showError("? \"\(text)\"")
-            
-        case .error(let message):
-            showError(message)
-            
-        case .empty:
-            showError("Didn't hear anything")
-        }
     }
     
     private func showFeedback(_ message: String) {

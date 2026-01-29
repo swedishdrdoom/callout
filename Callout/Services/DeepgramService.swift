@@ -14,7 +14,9 @@ final class DeepgramService {
     // MARK: - Configuration
     
     /// Backend API endpoint - proxies to Deepgram with gym keywords
-    private let transcribeURL = URL(string: "http://139.59.185.244:3100/api/transcribe")!
+    private var transcribeURL: URL {
+        URL(string: "\(Configuration.backendBaseURL)/api/transcribe")!
+    }
     
     private let session: URLSession
     

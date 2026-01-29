@@ -1,170 +1,465 @@
-# Callout Code Health Audit
+# Callout Code Health Report
 
-**Audited:** 2026-01-29  
-**Auditor:** Fresh-eye sub-agent  
-**Files reviewed:** 18 Swift files across Services, Views, Models, App
+**Generated:** 2025-01-29  
+**Scope:** Services, Views, Models, App, Utilities  
+**Total Files Reviewed:** 19 Swift files
 
 ---
 
-## 🔴 High Priority
+## Executive Summary
 
-### 1. Dead Code: `handleProcessResult` in RestLoopViewModel
-**File:** `Views/RestLoopView.swift` (lines ~415-435)  
-**Issue:** The method `handleProcessResult(_:transcription:)` is never called. Voice processing now uses `handleBackendResult(_:)` instead.  
-**Action:** Delete the unused method.
+The codebase is generally well-structured with good separation of concerns. However, there are several areas that need attention:
+
+- **High Priority:** Duplicate model definitions, unused code paths, hardcoded API endpoints
+- **Medium Priority:** Inconsistent patterns, repeated code, missing abstractions
+- **Low Priority:** Minor style inconsistencies, potential optimizations
+
+---
+
+## 🔴 High Priority Issues
+
+### 1. Duplicate Model Definitions
+
+**Files:** `MainView.swift`, `RestLoopView.swift`, `WorkoutModels.swift`
+
+The same models are defined in multiple places with slight variations:
+
+| Model | Locations |
+|-------|-----------|
+| `InterpretedData` | MainView.swift:217, RestLoopView.swift:455 |
+| `BackendResponse/BackendResult` | MainView.swift:212, RestLoopView.swift:449 |
+| `WeightUnit` | OnboardingView.swift:180, WorkoutModels.swift (implicit via GrammarParser) |
+| `ExerciseData`, `SetData` | MainView.swift:237-247, WorkoutCardView.swift (used) |
+| `CompletedWorkout` | MainView.swift:201 (defined), WorkoutCardView.swift (used) |
+
+**Problem:** Changes need to be made in multiple places, leading to drift and bugs.
+
+**Recommendation:**
+```swift
+// Create Models/BackendModels.swift
+struct BackendResponse: Decodable {
+    let transcript: String
+    let interpreted: InterpretedData
+    let latency: LatencyInfo?
+}
+
+struct InterpretedData: Decodable {
+    let type: String
+    let weight: Double?
+    let unit: String?
+    let reps: Int?
+    let name: String?
+    let text: String?
+    let pr: String?
+}
+```
+
+---
 
 ### 2. Hardcoded Backend URL
-**File:** `Views/RestLoopView.swift` (line ~395), `Services/DeepgramService.swift` (line ~15)  
-**Issue:** Backend URL `http://139.59.185.244:3100` is hardcoded in multiple places.  
-**Action:** Extract to a single `Configuration` struct or use environment/settings.
+
+**Files:** `MainView.swift:170`, `RestLoopView.swift:383`, `DeepgramService.swift:16`
 
 ```swift
-// Suggested: Create Callout/Configuration.swift
-enum Configuration {
-    static var backendBaseURL: String {
+// MainView.swift:170
+let url = URL(string: "http://139.59.185.244:3100/api/understand")!
+
+// RestLoopView.swift:383
+let url = URL(string: "http://139.59.185.244:3100/api/understand")!
+
+// DeepgramService.swift:16
+private let transcribeURL = URL(string: "http://139.59.185.244:3100/api/transcribe")!
+```
+
+**Problems:**
+1. Force unwrap on URL creation
+2. Duplicated across files
+3. No staging/production differentiation
+4. Plain HTTP (not HTTPS)
+
+**Recommendation:**
+```swift
+// Create Services/APIConfiguration.swift
+enum APIConfiguration {
+    static let baseURL: URL = {
         #if DEBUG
-        return "http://139.59.185.244:3100"
+        return URL(string: "http://139.59.185.244:3100")!
         #else
-        return "https://api.callout.app"  // Production URL
+        return URL(string: "https://api.callout.app")!
         #endif
-    }
+    }()
+    
+    static var transcribeURL: URL { baseURL.appendingPathComponent("api/transcribe") }
+    static var understandURL: URL { baseURL.appendingPathComponent("api/understand") }
 }
 ```
 
-### 3. Force Unwrap Risk
-**File:** `Services/PersistenceManager.swift` (line ~168)  
-**Issue:** `workout.startedAt > index.lastWorkoutDate!` — force unwrap after nil check on different line.  
-**Action:** Use optional binding or guard let.
+---
+
+### 3. Unused Code in WorkoutSession
+
+**File:** `WorkoutSession.swift`
+
+The `GrammarParser` integration exists but is bypassed by the backend:
 
 ```swift
-// Before
-if index.lastWorkoutDate == nil || workout.startedAt > index.lastWorkoutDate! {
+// Line 45-47 - Dependencies declared but GrammarParser barely used
+private let parser = GrammarParser.shared
 
-// After  
-if let lastDate = index.lastWorkoutDate {
-    if workout.startedAt > lastDate {
-        index.lastWorkoutDate = workout.startedAt
-    }
+// Line 97 - processVoiceInput() method exists but isn't called by MainView/RestLoopView
+// Both views send audio directly to backend and handle response there
+```
+
+The entire `processVoiceInput()` method (lines 97-141) and its `ProcessResult` enum are dead code since the backend now does parsing.
+
+**Recommendation:** Either:
+1. Remove `processVoiceInput()` and make GrammarParser a fallback/offline mode
+2. Or route all parsing through WorkoutSession for consistency
+
+---
+
+### 4. Two Competing Main Views
+
+**Files:** `MainView.swift`, `RestLoopView.swift`
+
+Both files implement the main workout interface with different approaches:
+- `MainView` - Simpler, used by `CalloutApp.swift`
+- `RestLoopView` - More feature-rich with ghost data, manual entry, etc.
+
+**Problem:** `RestLoopView` is never instantiated (orphaned code).
+
+**Evidence:**
+```swift
+// CalloutApp.swift:22 - Only MainView is used
+if hasCompletedOnboarding {
+    MainView()  // RestLoopView never used
+}
+```
+
+**Recommendation:** 
+- If RestLoopView is the intended V2, migrate to it
+- If MainView is the final design, delete RestLoopView
+- Current state: ~600 lines of dead code
+
+---
+
+## 🟡 Medium Priority Issues
+
+### 5. Repeated Weight Formatting Logic
+
+**Files:** `WidgetDataManager.swift:66`, `RestLoopView.swift:244`, `ReceiptView.swift:177`, `WorkoutCardView.swift:137`
+
+The same weight formatting logic is copied 4+ times:
+
+```swift
+// Pattern repeated everywhere
+if weight.truncatingRemainder(dividingBy: 1) == 0 {
+    return String(format: "%.0f", weight)
 } else {
-    index.lastWorkoutDate = workout.startedAt
+    return String(format: "%.1f", weight)
 }
 ```
 
----
-
-## 🟡 Medium Priority
-
-### 4. Legacy Code in DeepgramService
-**File:** `Services/DeepgramService.swift`  
-**Issue:** Contains legacy code from pre-backend-proxy era:
-- `setAPIKey(_:)` method (lines 35-40) — does nothing, marked "no-op"
-- `DeepgramError.missingAPIKey` — marked "Legacy, kept for compatibility"
-- `hasAPIKey` computed property always returns `true`
-
-**Action:** Remove legacy code or add `@available(*, deprecated)` annotations.
-
-### 5. Large ViewModel (~500 lines)
-**File:** `Views/RestLoopView.swift`  
-**Issue:** `RestLoopViewModel` handles too many responsibilities:
-- Voice recording orchestration
-- Backend communication  
-- UI state management
-- Widget updates
-- AirPod callbacks
-
-**Action:** Extract concerns:
-- `AudioProcessingService` — handle recording → transcription → interpretation flow
-- Move `BackendResult` models to `Models/BackendModels.swift`
-- Move `ManualEntryView` to separate file
-
-### 6. Inconsistent Observable Pattern
-**Files:** Various Services  
-**Issue:** Inconsistent use of `@Observable`:
-- ✅ Uses `@Observable`: WorkoutSession, DeepgramService, GrammarParser, VoiceRecorder
-- ❌ Doesn't use: PersistenceManager, HapticManager, WidgetDataManager
-
-**Action:** Decide on a pattern. For services that never need UI observation, document why they don't use `@Observable`. Consider making HapticManager `@Observable` if `isEnabled` should trigger UI updates.
-
-### 7. Magic Strings for UserDefaults Keys
-**Files:** Multiple  
-**Issue:** UserDefaults keys scattered as magic strings:
-- `"weightUnit"` in RestLoopView
-- `"hapticsEnabled"` in HapticManager  
-- `"hasCompletedOnboarding"` in CalloutApp
-
-**Action:** Centralize in an enum:
+**Recommendation:**
 ```swift
-enum UserDefaultsKey {
-    static let weightUnit = "weightUnit"
-    static let hapticsEnabled = "hapticsEnabled"
-    static let hasCompletedOnboarding = "hasCompletedOnboarding"
+// Add to Models/WorkoutModels.swift or create Utilities/Formatters.swift
+extension Double {
+    var formattedWeight: String {
+        truncatingRemainder(dividingBy: 1) == 0 
+            ? String(format: "%.0f", self)
+            : String(format: "%.1f", self)
+    }
 }
 ```
 
 ---
 
-## 🟢 Low Priority
+### 6. Inconsistent Error Handling
 
-### 8. Exercise Aliases Hardcoded
-**File:** `Services/GrammarParser.swift` (lines 20-95)  
-**Issue:** 80+ exercise aliases hardcoded in a dictionary. Hard to maintain and extend.  
-**Action:** Consider moving to `exercises.json` bundled resource for easier updates without code changes.
+**File:** `DeepgramService.swift`
 
-### 9. Mixed Async Patterns
-**Files:** PersistenceManager, others  
-**Issue:** Mix of `DispatchQueue.async` and `async/await`. PersistenceManager uses `DispatchQueue` while most other code uses `async/await`.  
-**Action:** Consider migrating PersistenceManager to Swift Concurrency with actors for thread safety:
+The `DeepgramError.missingAPIKey` case is marked as "Legacy, kept for compatibility" but `hasAPIKey` always returns `true`:
 
 ```swift
-actor PersistenceManager {
-    // ... actor provides built-in thread safety
+// Line 27
+var hasAPIKey: Bool { true }
+
+// Line 66 - This error case can never be thrown
+case .missingAPIKey:
+    return "Backend unavailable"
+```
+
+**Recommendation:** Remove dead error cases or implement proper API key checking if needed.
+
+---
+
+### 7. Magic Numbers
+
+**File:** `WorkoutSession.swift:264`
+```swift
+// What is 0.6? Should be a named constant
+return weight < ghost.weight * 0.6
+```
+
+**File:** `DeepgramService.swift:23-24`
+```swift
+config.timeoutIntervalForRequest = 8  // Why 8?
+config.timeoutIntervalForResource = 16  // Why 16?
+```
+
+**File:** `RestLoopView.swift:387`
+```swift
+request.timeoutInterval = 15 // Reasonable timeout for background
+```
+
+**Recommendation:**
+```swift
+enum Constants {
+    enum Workout {
+        static let warmupThreshold = 0.6  // 60% of working weight = warmup
+    }
+    enum Network {
+        static let quickTimeout: TimeInterval = 8
+        static let standardTimeout: TimeInterval = 15
+    }
 }
 ```
 
-### 10. Unused Protocol Default Implementations
-**File:** `Services/VoiceRecorder.swift` (lines 190-200)  
-**Issue:** `VoiceRecorderDelegate` has empty default implementations for all methods. If the delegate is always expected to be set, consider removing defaults.  
-**Action:** Review if delegate pattern is still needed or if closures/callbacks would be cleaner.
+---
 
-### 11. Debug Print Statements
-**Files:** Most services  
-**Issue:** Many `#if DEBUG print(...)` statements. Good practice but verbose.  
-**Action:** Consider a lightweight Logger utility (you have `Utilities/Logger.swift` — verify it's being used consistently).
+### 8. VoiceRecorder Delegate Not Used
 
-### 12. Commented Code Style
-**File:** `Services/GrammarParser.swift`  
-**Issue:** Well-documented but some MARK sections are inconsistent.  
-**Action:** Minor — standardize MARK comment style across all files.
+**File:** `VoiceRecorder.swift`
+
+The delegate pattern is fully implemented (lines 210-228) but neither `MainViewModel` nor `RestLoopViewModel` conform to `VoiceRecorderDelegate`. They use the recorder in a fire-and-forget manner.
+
+**Recommendation:** Either:
+1. Remove the delegate pattern if not needed
+2. Or use it for proper error handling in ViewModels
 
 ---
 
-## ✅ What's Good
+### 9. Inconsistent Async Patterns
 
-- **Singleton pattern** consistently applied across services
-- **Pre-warming** on app launch eliminates first-use lag
-- **Background queue** for disk I/O in PersistenceManager
-- **Haptic feedback** is well-organized and comprehensive
-- **Sendable conformance** on models for Swift 6 concurrency
-- **@ObservationIgnored** properly used for lazy vars
-- **Error handling** with proper LocalizedError conformance
-- **Code organization** with clear MARK sections
+**Files:** Multiple
+
+Mix of completion handlers and async/await:
+
+```swift
+// PersistenceManager.swift - Uses DispatchQueue for background
+diskQueue.async { [weak self] in ... }
+
+// MainView.swift - Uses Task.detached
+Task.detached(priority: .userInitiated) { ... }
+
+// VoiceRecorder.swift - Uses async/await
+func start() async throws { ... }
+```
+
+**Recommendation:** Standardize on async/await with structured concurrency where possible.
 
 ---
 
-## Summary
+### 10. Logging Inconsistency
 
-| Priority | Count | Est. Effort |
-|----------|-------|-------------|
-| 🔴 High | 3 | 1-2 hours |
-| 🟡 Medium | 4 | 2-4 hours |
-| 🟢 Low | 5 | 2-3 hours |
+**File:** `Utilities/Logger.swift` exists but is unused
 
-**Recommended order:**
-1. Delete dead `handleProcessResult` code (5 min)
-2. Extract hardcoded backend URL (15 min)
-3. Fix force unwrap in PersistenceManager (5 min)
-4. Clean up legacy DeepgramService code (15 min)
-5. Extract ManualEntryView to separate file (10 min)
-6. Centralize UserDefaults keys (15 min)
+The codebase uses direct `print()` with `#if DEBUG`:
 
-Total estimated cleanup: **~4-6 hours** for all items.
+```swift
+// Used everywhere
+#if DEBUG
+print("[WidgetDataManager] Warning: App Group not configured")
+#endif
+
+// But Logger.swift provides:
+Log.debug("message")  // Never used
+```
+
+**Recommendation:** Either use the Log utility consistently or remove it.
+
+---
+
+## 🟢 Low Priority Issues
+
+### 11. Force Unwraps
+
+**File:** `PersistenceManager.swift:24`
+```swift
+fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+```
+
+While practically safe, could use `first!` with a comment or handle gracefully.
+
+---
+
+### 12. Unused Protocol Conformance
+
+**File:** `WorkoutModels.swift:10`
+```swift
+struct Workout: Identifiable, Codable, Sendable { ... }
+```
+
+`Sendable` conformance is declared but the types aren't used across concurrency boundaries in the current code.
+
+---
+
+### 13. Commented Code Smell
+
+**File:** `GrammarParser.swift:288-291`
+```swift
+// MARK: - Learning (Future)
+
+/// Add a custom exercise alias
+func learnAlias(_ alias: String, for exercise: String) {
+    exerciseAliases[alias.lowercased()] = exercise
+}
+```
+
+Method exists but is never called. Either implement the learning feature or remove.
+
+---
+
+### 14. View Model State Duplication
+
+**File:** `MainView.swift`
+
+`MainViewModel` duplicates some state tracking that `WorkoutSession` already handles:
+
+```swift
+// MainViewModel tracks:
+var entries: [VoiceEntry] = []
+
+// WorkoutSession tracks:
+var currentWorkout: Workout?  // Contains exercises and sets
+```
+
+---
+
+### 15. Inconsistent Theme Usage
+
+**Files:** `MainView.swift`, `WorkoutCardView.swift` vs others
+
+`CalloutTheme` is defined in `MainView.swift` and used in `WorkoutCardView.swift`, but `RestLoopView.swift`, `ReceiptView.swift`, and `SettingsView.swift` define colors inline:
+
+```swift
+// RestLoopView.swift
+Color.black  // Instead of CalloutTheme.background
+.white.opacity(0.6)  // Instead of CalloutTheme.dimWhite
+```
+
+**Recommendation:** Move `CalloutTheme` to a shared file and use consistently.
+
+---
+
+### 16. Preview Data Could Be Richer
+
+**File:** `ReceiptView.swift:189-192`
+```swift
+#Preview {
+    var workout = Workout()
+    workout.endedAt = Date()
+    return ReceiptView(workout: workout)  // Empty workout
+}
+```
+
+Preview shows an empty workout, making it less useful for development.
+
+---
+
+## Architectural Recommendations
+
+### 1. Create a Proper Network Layer
+
+Extract networking into a dedicated service:
+
+```swift
+// Services/NetworkService.swift
+actor NetworkService {
+    static let shared = NetworkService()
+    
+    func understand(audioData: Data) async throws -> BackendResponse
+    func transcribe(audioData: Data) async throws -> String
+}
+```
+
+### 2. Consolidate Models
+
+Create a clear model hierarchy:
+
+```
+Models/
+├── WorkoutModels.swift      // Core domain models
+├── BackendModels.swift      // API response models  
+├── ViewModels.swift         // UI-specific models (VoiceEntry, CompletedWorkout)
+└── Constants.swift          // Magic numbers, configuration
+```
+
+### 3. Resolve MainView vs RestLoopView
+
+Choose one approach and delete the other. Current recommendation: 
+- Keep `MainView` (simpler, matches App entry point)
+- Port ghost data feature from RestLoopView if needed
+- Delete RestLoopView (600+ lines of dead code)
+
+### 4. Add Dependency Injection
+
+Current singleton pattern makes testing difficult:
+
+```swift
+// Current
+private let recorder = VoiceRecorder()
+private let transcription = DeepgramService.shared
+
+// Better
+init(
+    recorder: VoiceRecorder = VoiceRecorder(),
+    transcription: DeepgramService = .shared
+)
+```
+
+---
+
+## Quick Wins (Can Fix Today)
+
+1. ✅ Extract `CalloutTheme` to `Utilities/Theme.swift`
+2. ✅ Add `formattedWeight` extension to Double
+3. ✅ Create `APIConfiguration` for URLs
+4. ✅ Remove or use `Log` utility
+5. ✅ Add warmup threshold constant
+6. ✅ Delete `RestLoopView.swift` if not used
+
+---
+
+## Files Summary
+
+| File | Health | Notes |
+|------|--------|-------|
+| `WorkoutModels.swift` | 🟢 Good | Clean, well-documented |
+| `PersistenceManager.swift` | 🟢 Good | Good caching strategy |
+| `HapticManager.swift` | 🟢 Good | Clean singleton |
+| `WidgetDataManager.swift` | 🟢 Good | Simple, focused |
+| `CalloutWidget.swift` | 🟢 Good | Well-structured |
+| `VoiceRecorder.swift` | 🟡 OK | Unused delegate pattern |
+| `DeepgramService.swift` | 🟡 OK | Dead error cases |
+| `WorkoutSession.swift` | 🟡 OK | Dead code paths |
+| `GrammarParser.swift` | 🟡 OK | Unused by main flow |
+| `AirPodController.swift` | 🟡 OK | May be dead code |
+| `MainView.swift` | 🟡 OK | Duplicate models |
+| `RestLoopView.swift` | 🔴 Remove | Orphaned, not used |
+| `ReceiptView.swift` | 🟢 Good | Clean receipt design |
+| `SettingsView.swift` | 🟢 Good | Straightforward |
+| `OnboardingView.swift` | 🟡 OK | Duplicate WeightUnit |
+| `SplashView.swift` | 🟢 Good | Simple, effective |
+| `WorkoutCardView.swift` | 🟡 OK | Uses external models |
+| `CalloutApp.swift` | 🟢 Good | Clean entry point |
+| `Logger.swift` | 🔴 Remove | Not used anywhere |
+
+---
+
+## Next Steps
+
+1. **Immediate:** Delete `RestLoopView.swift` and `Logger.swift` if confirmed unused
+2. **This Week:** Extract duplicate models into shared files
+3. **This Sprint:** Create `APIConfiguration` and `Constants` files
+4. **Future:** Add dependency injection for testability

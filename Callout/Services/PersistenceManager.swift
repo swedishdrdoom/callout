@@ -237,7 +237,11 @@ final class PersistenceManager {
             index.workoutIds.append(workout.id)
         }
         
-        if index.lastWorkoutDate == nil || workout.startedAt > index.lastWorkoutDate! {
+        if let lastDate = index.lastWorkoutDate {
+            if workout.startedAt > lastDate {
+                index.lastWorkoutDate = workout.startedAt
+            }
+        } else {
             index.lastWorkoutDate = workout.startedAt
         }
         
