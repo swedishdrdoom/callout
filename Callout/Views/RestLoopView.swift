@@ -125,7 +125,9 @@ struct RestLoopView: View {
                 .tracking(2)
             
             // Use TimelineView to isolate timer updates and prevent full view re-renders
-            TimelineView(.periodic(from: .now, by: 1.0)) { _ in
+            TimelineView(.periodic(from: .now, by: 1.0)) { context in
+                // Reference context.date to ensure SwiftUI re-evaluates on each tick
+                let _ = context.date
                 Text(viewModel.formattedRestTime)
                     .font(.system(size: 72, weight: .light, design: .monospaced))
                     .foregroundStyle(.white)
