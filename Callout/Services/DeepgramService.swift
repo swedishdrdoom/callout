@@ -26,7 +26,8 @@ final class DeepgramService {
     private(set) var lastError: DeepgramError?
     private(set) var lastLatencyMs: Int?
     
-    /// Always available - backend handles API key
+    /// Always returns true - backend proxy handles API key management
+    /// Kept for API compatibility with older code paths that may check this
     var hasAPIKey: Bool { true }
     
     // MARK: - Initialization
@@ -41,11 +42,9 @@ final class DeepgramService {
     }
     
     /// Legacy - no longer needed with backend proxy
+    @available(*, deprecated, message: "API key management is now handled by the backend proxy")
     func setAPIKey(_ key: String) {
         // No-op: backend handles API key
-        #if DEBUG
-        print("[DeepgramService] API key management handled by backend")
-        #endif
     }
     
     // MARK: - Public API
@@ -157,7 +156,8 @@ private struct TranscribeResponse {
 // MARK: - Errors
 
 enum DeepgramError: LocalizedError {
-    case missingAPIKey  // Legacy, kept for compatibility
+    @available(*, deprecated, message: "API key is now handled by backend proxy - this case is unused")
+    case missingAPIKey
     case invalidAPIKey
     case rateLimited
     case serverError(Int)

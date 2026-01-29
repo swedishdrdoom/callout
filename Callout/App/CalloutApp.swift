@@ -2,7 +2,7 @@ import SwiftUI
 
 @main
 struct CalloutApp: App {
-    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @AppStorage(UserDefaultsKey.hasCompletedOnboarding) private var hasCompletedOnboarding = false
     @State private var showingSplash = true
     
     init() {

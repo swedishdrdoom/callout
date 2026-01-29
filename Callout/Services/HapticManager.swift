@@ -1,4 +1,5 @@
 import UIKit
+import Foundation
 
 // MARK: - HapticManager
 
@@ -14,8 +15,8 @@ final class HapticManager {
     
     /// User preference for haptic feedback
     var isEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: "hapticsEnabled") }
-        set { UserDefaults.standard.set(newValue, forKey: "hapticsEnabled") }
+        get { UserDefaults.standard.bool(forKey: UserDefaultsKey.hapticsEnabled) }
+        set { UserDefaults.standard.set(newValue, forKey: UserDefaultsKey.hapticsEnabled) }
     }
     
     // MARK: - Feedback Generators (lazy-loaded for performance)
@@ -32,7 +33,7 @@ final class HapticManager {
     
     private init() {
         // Default to enabled on first launch
-        if UserDefaults.standard.object(forKey: "hapticsEnabled") == nil {
+        if UserDefaults.standard.object(forKey: UserDefaultsKey.hapticsEnabled) == nil {
             isEnabled = true
         }
     }
