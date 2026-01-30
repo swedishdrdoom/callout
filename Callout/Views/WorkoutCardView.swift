@@ -5,6 +5,7 @@ import SwiftUI
 /// The finished workout card - clean, minimal, bento-style
 struct WorkoutCardView: View {
     let workout: CompletedWorkout?
+    var onDone: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     
     var body: some View {
@@ -37,7 +38,11 @@ struct WorkoutCardView: View {
         VStack(spacing: 8) {
             HStack {
                 Button("Done") {
-                    dismiss()
+                    if let onDone = onDone {
+                        onDone()
+                    } else {
+                        dismiss()
+                    }
                 }
                 .foregroundStyle(CalloutTheme.lime)
                 

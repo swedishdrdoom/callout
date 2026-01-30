@@ -1,9 +1,21 @@
 import SwiftUI
 
+// MARK: - App Flow State
+
+enum AppFlowState {
+    case splash
+    case onboarding
+    case start       // New: Start screen with big button
+    case workout     // Active workout
+    case processing  // LLM crunching
+    case results     // Workout card
+}
+
 @main
 struct CalloutApp: App {
     @AppStorage(UserDefaultsKey.hasCompletedOnboarding) private var hasCompletedOnboarding = false
-    @State private var showingSplash = true
+    @State private var flowState: AppFlowState = .splash
+    @State private var completedWorkout: CompletedWorkout?
     
     init() {
         // Pre-warm all services on launch for zero-lag experience
@@ -13,28 +25,70 @@ struct CalloutApp: App {
     var body: some Scene {
         WindowGroup {
             ZStack {
-                // Main content (loads behind splash)
-                Group {
-                    if hasCompletedOnboarding {
-                        MainView()
-                    } else {
-                        OnboardingView()
-                    }
-                }
-                .opacity(showingSplash ? 0 : 1)
+                CalloutTheme.background.ignoresSafeArea()
                 
-                // Splash overlay
-                if showingSplash {
+                switch flowState {
+                case .splash:
                     SplashView()
                         .transition(.opacity)
-                        .zIndex(1)
+                    
+                case .onboarding:
+                    OnboardingView()
+                        .transition(.move(edge: .trailing))
+                    
+                case .start:
+                    StartScreen {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            flowState = .workout
+                        }
+                    }
+                    .transition(.move(edge: .trailing))
+                    
+                case .workout:
+                    MainView(
+                        onFinish: { workout in
+                            completedWorkout = workout
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                flowState = .processing
+                            }
+                            // Simulate processing delay (replace with actual LLM check)
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    flowState = .results
+                                }
+                            }
+                        },
+                        onCancel: {
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                flowState = .start
+                            }
+                        }
+                    )
+                    .transition(.move(edge: .trailing))
+                    
+                case .processing:
+                    ProcessingView()
+                        .transition(.opacity)
+                    
+                case .results:
+                    if let workout = completedWorkout {
+                        WorkoutCardView(workout: workout) {
+                            // Reset for next workout
+                            completedWorkout = nil
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                flowState = .start
+                            }
+                        }
+                        .transition(.move(edge: .trailing))
+                    }
                 }
             }
+            .animation(.easeInOut(duration: 0.3), value: flowState)
             .onAppear {
                 // Dismiss splash after brief branding moment
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) {
                     withAnimation(.easeOut(duration: 0.3)) {
-                        showingSplash = false
+                        flowState = hasCompletedOnboarding ? .start : .onboarding
                     }
                 }
             }

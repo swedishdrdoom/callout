@@ -15,65 +15,99 @@ enum CalloutTheme {
 
 // MARK: - Main View
 
-/// The main workout screen - radically simple
-/// Just a big speak button, timer, and finish
+/// The active workout screen
+/// Timer at top, voice log blocks, big callout button, finish button
 struct MainView: View {
+    let onFinish: (CompletedWorkout) -> Void
+    let onCancel: () -> Void
+    
     @State private var viewModel = MainViewModel()
     
     var body: some View {
         ZStack {
             CalloutTheme.background.ignoresSafeArea()
             
-            VStack(spacing: 40) {
-                Spacer()
+            VStack(spacing: 24) {
+                // Top bar with cancel
+                HStack {
+                    Button {
+                        onCancel()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(CalloutTheme.dimWhite)
+                            .frame(width: 44, height: 44)
+                    }
+                    
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
                 
                 // Session timer
                 Text(viewModel.formattedTime)
-                    .font(.system(size: 72, weight: .light, design: .monospaced))
+                    .font(.system(size: 64, weight: .light, design: .monospaced))
                     .foregroundStyle(CalloutTheme.white)
+                    .padding(.top, 20)
+                
+                // Voice log grid (GitHub-style blocks)
+                VoiceLogGrid(entries: viewModel.entries)
+                    .frame(maxHeight: 180)
                 
                 Spacer()
                 
-                // Big speak button
+                // Big callout button
                 Button {
                     viewModel.toggleRecording()
                 } label: {
                     ZStack {
+                        // Outer pulse ring when recording
+                        if viewModel.isRecording {
+                            Circle()
+                                .stroke(CalloutTheme.lime.opacity(0.3), lineWidth: 2)
+                                .frame(width: 150, height: 150)
+                                .scaleEffect(viewModel.isRecording ? 1.2 : 1.0)
+                                .opacity(viewModel.isRecording ? 0 : 1)
+                                .animation(.easeOut(duration: 1).repeatForever(autoreverses: false), value: viewModel.isRecording)
+                        }
+                        
                         Circle()
-                            .fill(viewModel.isRecording ? CalloutTheme.lime : CalloutTheme.lime.opacity(0.2))
-                            .frame(width: 120, height: 120)
+                            .fill(viewModel.isRecording ? CalloutTheme.lime : CalloutTheme.lime.opacity(0.15))
+                            .frame(width: 130, height: 130)
                         
                         Circle()
                             .stroke(CalloutTheme.lime, lineWidth: 3)
-                            .frame(width: 120, height: 120)
+                            .frame(width: 130, height: 130)
                         
-                        Image(systemName: viewModel.isRecording ? "waveform" : "mic.fill")
-                            .font(.system(size: 40))
-                            .foregroundStyle(viewModel.isRecording ? .black : CalloutTheme.lime)
-                            .symbolEffect(.variableColor, isActive: viewModel.isRecording)
+                        VStack(spacing: 4) {
+                            Image(systemName: viewModel.isRecording ? "waveform" : "mic.fill")
+                                .font(.system(size: 36))
+                                .foregroundStyle(viewModel.isRecording ? .black : CalloutTheme.lime)
+                                .symbolEffect(.variableColor, isActive: viewModel.isRecording)
+                            
+                            Text(viewModel.isRecording ? "STOP" : "CALLOUT")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(viewModel.isRecording ? .black : CalloutTheme.lime)
+                        }
                     }
                 }
+                .buttonStyle(.plain)
                 
                 // Status text
                 Text(viewModel.statusText)
                     .font(.subheadline)
                     .foregroundStyle(CalloutTheme.dimWhite)
                     .frame(height: 20)
+                    .padding(.top, 8)
                 
                 Spacer()
                 
-                // Entries count
-                if viewModel.entriesCount > 0 {
-                    Text("\(viewModel.entriesCount) entries logged")
-                        .font(.caption)
-                        .foregroundStyle(CalloutTheme.subtleWhite)
-                }
-                
                 // Finish button
                 Button {
-                    viewModel.finishWorkout()
+                    if let workout = viewModel.buildCompletedWorkout() {
+                        onFinish(workout)
+                    }
                 } label: {
-                    Text("FINISH")
+                    Text("FINISH WORKOUT")
                         .font(.headline)
                         .fontWeight(.bold)
                         .foregroundStyle(.black)
@@ -86,9 +120,6 @@ struct MainView: View {
             }
         }
         .preferredColorScheme(.dark)
-        .sheet(isPresented: $viewModel.showingReceipt) {
-            WorkoutCardView(workout: viewModel.completedWorkout)
-        }
         .onAppear {
             viewModel.startSession()
         }
@@ -106,8 +137,10 @@ final class MainViewModel {
     private(set) var isRecording = false
     private(set) var sessionStartTime: Date?
     private(set) var entries: [VoiceEntry] = []
-    var showingReceipt = false
-    var completedWorkout: CompletedWorkout?
+    
+    // Timer for UI updates
+    private var timer: Timer?
+    private(set) var timerTick: Int = 0  // Forces UI refresh
     
     // MARK: - Services
     
@@ -116,6 +149,8 @@ final class MainViewModel {
     // MARK: - Computed
     
     var formattedTime: String {
+        // Reference timerTick to trigger updates
+        _ = timerTick
         guard let start = sessionStartTime else { return "0:00" }
         let elapsed = Int(Date().timeIntervalSince(start))
         let minutes = elapsed / 60
@@ -127,7 +162,7 @@ final class MainViewModel {
         if isRecording {
             return "Listening..."
         } else if entries.isEmpty {
-            return "Tap to speak"
+            return "Tap to log your first set"
         } else {
             return "Tap to add more"
         }
@@ -142,6 +177,16 @@ final class MainViewModel {
     func startSession() {
         sessionStartTime = Date()
         entries = []
+        startTimer()
+    }
+    
+    private func startTimer() {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.timerTick += 1
+            }
+        }
     }
     
     func toggleRecording() {
@@ -221,16 +266,18 @@ final class MainViewModel {
         entries[index].status = .failed
     }
     
-    func finishWorkout() {
-        guard let start = sessionStartTime else { return }
+    /// Build the completed workout for the results screen
+    func buildCompletedWorkout() -> CompletedWorkout? {
+        guard let start = sessionStartTime else { return nil }
         
-        // Build completed workout from entries
-        completedWorkout = CompletedWorkout(
+        timer?.invalidate()
+        timer = nil
+        
+        return CompletedWorkout(
             date: start,
             duration: Date().timeIntervalSince(start),
             entries: entries
         )
-        showingReceipt = true
     }
 }
 
