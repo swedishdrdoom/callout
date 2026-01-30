@@ -458,5 +458,8 @@ enum PRType: String {
 }
 
 #Preview {
-    MainView()
+    MainView(
+        onFinish: { _ in print("Finished!") },
+        onCancel: { print("Cancelled!") }
+    )
 }
